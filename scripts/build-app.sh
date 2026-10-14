@@ -17,8 +17,6 @@ rm -rf "$APP" build/UsageDisplay.zip
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/UsageDisplay"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-mkdir -p "$APP/Contents/Resources"
-cp Resources/codex-logo.png Resources/anthropic-logo.png "$APP/Contents/Resources/"
 
 # Ad-hoc (no Apple Developer account), so downloaders need
 # System Settings → Privacy & Security → "Open Anyway" on first launch.

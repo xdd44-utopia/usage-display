@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let claudeConfig = ClaudeUsageReader.defaultConfigFile
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: codexHome.path) {
-            codexItem = makeItem(length: NSStatusItem.squareLength)
+            codexItem = makeItem(length: NSStatusItem.variableLength)
             codexCLI = CommandLineTool.find("codex")
         }
         let claudeInstalled = fileManager.fileExists(atPath: claudeConfig.path)
@@ -108,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             codexUsage = [codexLive, codexReader.read()].compactMap { $0 }
                 .max { ($0.fetchedAt ?? .distantPast) < ($1.fetchedAt ?? .distantPast) }
             let remaining = codexUsage?.tightest?.remainingPercent()
-            codexItem.button?.image = CodexIcon.image(remainingPercent: remaining)
+            codexItem.button?.image = TextGauge.codex(remainingPercent: remaining)
             codexItem.button?.toolTip = remaining.map { "Codex: \(Int($0.rounded()))% left" }
                 ?? "Codex usage unavailable"
         }
@@ -119,7 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 claudeUsage = [claudeLive, claudeReader.read()].compactMap { $0 }
                     .max { ($0.fetchedAt ?? .distantPast) < ($1.fetchedAt ?? .distantPast) }
             }
-            claudeItem.button?.image = ClaudeIcon.image(
+            claudeItem.button?.image = TextGauge.claude(
                 fiveHourPercent: claudeUsage?.fiveHour?.remainingPercent(),
                 weeklyPercent: claudeUsage?.weekly?.remainingPercent())
             let parts = claudeUsage?.windows.map { "\($0.label) \(Int($0.remainingPercent().rounded()))% left" }

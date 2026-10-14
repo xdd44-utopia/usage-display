@@ -1,12 +1,14 @@
 # Usage Display
 
 A macOS menu bar app that shows how much of your **Codex** and **Claude Code** usage limits is left.
-Each logo fills from the bottom up with what remains; click it to see every limit window and when it resets.
+Each icon is a short stacked label, **COD** or **CLA**, followed by the percentage left, or `--%` until
+usage is known.
+Click it to see every limit window and when it resets.
 An icon appears only for tools that are installed. Requires macOS 13+.
 
 ## Codex
 
-The logo shows whichever limit is closest to running out. By default it reads the latest snapshot Codex
+**COD** shows whichever limit is closest to running out. By default it reads the latest snapshot Codex
 saves in `~/.codex/sessions/`, so it only updates while you use Codex on this Mac.
 
 Turn on **Use Background Codex for Live Usage** in the menu to get current limits and banked resets from
@@ -15,7 +17,7 @@ minute) and every five minutes while the local snapshot is stale. The setting la
 
 ## Claude Code
 
-In the Anthropic mark, the **A** shows the 5-hour limit and the **\\** shows the weekly limit.
+**CLA** shows the weekly limit small on top and the 5-hour limit large below.
 
 At launch the app adds a usage status line to `~/.claude/settings.json`. If you already have one, it asks
 before replacing it, and keeps no backup. Claude then sends usage straight to the app, with no credentials
@@ -41,5 +43,4 @@ Needs only the Xcode Command Line Tools:
 ## Trademarks
 
 Not affiliated with or endorsed by OpenAI or Anthropic. Codex and OpenAI are trademarks of OpenAI; Claude and
-Anthropic are trademarks of Anthropic. Their logos are used only to identify the services whose usage is shown
-and are not covered by this project's [license](LICENSE).
+Anthropic are trademarks of Anthropic.
