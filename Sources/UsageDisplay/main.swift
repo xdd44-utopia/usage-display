@@ -22,9 +22,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var claudeLive: ClaudeUsage?
     private var lastClaudeFetch = Date.distantPast
     private var claudeMode = ClaudeUsageMode.disabled
+    /// Our status line is in Claude's settings, so declining credential access can fall back to it.
+    private var claudeStatusLineInstalled = false
     private var claudeLiveProblem: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let bundle = AppLocation.misplacedBundle,
+           ask("Move Usage Display to Applications?",
+               detail: "Claude’s status line runs Usage Display from where it is now, so it needs a permanent place.",
+               accept: "Move to Applications", decline: "Not Now") {
+            do {
+                AppLocation.relaunch(at: try AppLocation.moveToApplications(bundle))
+                return
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+        }
         let codexHome = CodexUsageReader.defaultCodexHome
         let claudeConfig = ClaudeUsageReader.defaultConfigFile
         let fileManager = FileManager.default
@@ -61,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }, askForCredentials: { error in
                 self.askForClaudeCredentials(error: error)
             })
+            claudeStatusLineInstalled = claudeMode == .statusLine
             if claudeMode != .disabled {
                 claudeItem = makeItem(length: NSStatusItem.variableLength)
             }
@@ -128,7 +142,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .expired:
                 claudeLiveProblem = "Claude Code login expired"
             case .denied:
-                disableClaude()
+                if claudeStatusLineInstalled {
+                    claudeMode = .statusLine
+                    claudeLiveProblem = nil
+                } else {
+                    disableClaude()
+                }
             case .unavailable:
                 claudeLiveProblem = "Couldn’t get live usage"
             }
@@ -184,9 +203,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func askForClaudeCredentials(error: Error?) -> Bool {
         let reason = error.map { "\($0.localizedDescription) " } ?? ""
+        let declining = claudeStatusLineInstalled
+            ? "Declining keeps using the status line." : "Declining disables Claude usage for this launch."
         return ask("Allow access to your Claude login?",
-                   detail: reason + "Usage Display can read your Claude login from the macOS Keychain and request usage from Anthropic every five minutes. Declining disables Claude usage for this launch.",
-                   accept: "Allow Credential Access", decline: "Disable Claude")
+                   detail: reason + "Usage Display can read your Claude login from the macOS Keychain and request usage from Anthropic every five minutes. " + declining,
+                   accept: "Allow Credential Access", decline: claudeStatusLineInstalled ? "Keep Status Line" : "Disable Claude")
     }
 
     private func disableClaude() {
@@ -206,12 +227,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func useClaudeCredentials() {
-        if askForClaudeCredentials(error: nil) {
-            claudeMode = .credentials
-            fetchClaudeIfDue(after: 0)
-        } else {
-            disableClaude()
-        }
+        guard askForClaudeCredentials(error: nil) else { return }
+        claudeMode = .credentials
+        fetchClaudeIfDue(after: 0)
     }
 
     @objc private func checkClaudeAgain() {

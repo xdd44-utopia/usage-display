@@ -25,10 +25,10 @@ If you keep your own status line, or your Claude interface doesn't run status li
 Access for Live Usage…**), the app can instead read your Claude login from the Keychain and ask Anthropic.
 It checks at launch, about every five minutes, and when you open the menu. It never stores or refreshes your
 credentials; if the login has expired, it runs `claude auth status` so Claude Code can renew it. Declining
-turns the Claude icon off until the next launch.
+from the menu keeps the status line; declining at launch turns the Claude icon off until the next launch.
 
-Keep the app somewhere stable, such as `/Applications`, because the status line points to it. To remove the
-integration, delete `statusLine` from Claude's settings.
+The status line points to the app, so it offers to move itself to `/Applications` when launched from anywhere
+else. To remove the integration, delete `statusLine` from Claude's settings.
 
 ## Build
 
@@ -37,3 +37,9 @@ Needs only the Xcode Command Line Tools:
 ```sh
 ./scripts/build-app.sh   # → build/UsageDisplay.app and build/UsageDisplay.zip (universal)
 ```
+
+## Trademarks
+
+Not affiliated with or endorsed by OpenAI or Anthropic. Codex and OpenAI are trademarks of OpenAI; Claude and
+Anthropic are trademarks of Anthropic. Their logos are used only to identify the services whose usage is shown
+and are not covered by this project's [license](LICENSE).
