@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 struct ClaudeUsage {
     let fiveHour: LimitWindow?
@@ -110,7 +109,7 @@ enum ClaudeUsageAPI {
 
     static func fetch() async -> Result {
         let login: Login
-        // The Keychain call blocks while macOS waits on the user, so keep it off the shared async threads.
+        // Waiting on `security` blocks, possibly through a Keychain prompt, so keep it off the shared async threads.
         let stored: StoredLogin = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 continuation.resume(returning: storedLogin())
@@ -144,17 +143,25 @@ enum ClaudeUsageAPI {
         case failed(Result)
     }
 
+    /// Read through Apple's `security` tool, as Claude Code does: Claude Code rewrites this item each time it
+    /// renews its login, which resets the item's allowed apps to that tool, so a direct read would prompt again.
     private static func storedLogin() -> StoredLogin {
-        let query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: "Claude Code-credentials",
-            kSecReturnData: true,
-            kSecMatchLimit: kSecMatchLimitOne,
-        ]
-        var item: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecUserCanceled || status == errSecAuthFailed { return .failed(.denied) }
-        guard status == errSecSuccess, let data = item as? Data else { return .failed(.unavailable) }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
+        let output = Pipe()
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return .failed(.unavailable) }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationReason == .exit else { return .failed(.unavailable) }
+        switch process.terminationStatus {
+        case 0: break
+        case 128, 51: return .failed(.denied) // errSecUserCanceled, errSecAuthFailed (low byte of the OSStatus)
+        default: return .failed(.unavailable)
+        }
 
         struct Stored: Decodable {
             let claudeAiOauth: OAuth?
