@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/UsageDisplay/UsageDisplay.csproj" />
+  <Project Path="tests/UsageDisplay.Tests/UsageDisplay.Tests.csproj" />
+</Solution>

@@ -4,3 +4,7 @@ build/
 xcuserdata/
 *.xcodeproj/
 .DS_Store
+bin/
+obj/
+*.user
+.vs/
