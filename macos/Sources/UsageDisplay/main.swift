@@ -29,7 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let bundle = AppLocation.misplacedBundle,
            ask("Move Usage Display to Applications?",
-               detail: "Claude’s status line runs Usage Display from where it is now, so it needs a permanent place.",
+               detail: "It’s running from the disk image or a temporary copy, so Claude’s status line will stop working once that’s gone. "
+                   + "You can also drag it anywhere in Finder and open it from there.",
                accept: "Move to Applications", decline: "Not Now") {
             do {
                 AppLocation.relaunch(at: try AppLocation.moveToApplications(bundle))
@@ -346,7 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         } catch {
             let alert = NSAlert(error: error)
-            alert.informativeText = "Move UsageDisplay.app to /Applications and try again."
+            alert.informativeText = "Drag UsageDisplay.app out of the disk image to Applications or another folder, open it from there, and try again."
             alert.runModal()
         }
     }

@@ -13,7 +13,8 @@ BIN=build/UsageDisplay-universal
 lipo -create -output "$BIN" "${SLICES[@]}"
 
 APP=build/UsageDisplay.app
-rm -rf "$APP" build/UsageDisplay.zip
+DMG=build/UsageDisplay.dmg
+rm -rf "$APP" "$DMG" build/UsageDisplay.zip
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/UsageDisplay"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
@@ -22,5 +23,9 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # System Settings → Privacy & Security → "Open Anyway" on first launch.
 codesign --force --sign - "$APP"
 
-ditto -c -k --keepParent "$APP" build/UsageDisplay.zip
-echo "Built $APP and build/UsageDisplay.zip"
+STAGING=$(mktemp -d)
+trap 'rm -rf "$STAGING"' EXIT
+cp -R "$APP" "$STAGING/"
+ln -s /Applications "$STAGING/Applications"
+hdiutil create -volname "Usage Display" -srcfolder "$STAGING" -format UDZO -ov "$DMG"
+echo "Built $APP and $DMG"

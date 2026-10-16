@@ -29,13 +29,15 @@ It checks at launch, about every five minutes, and when you open the menu. It ne
 credentials; if the login has expired, it runs `claude auth status` so Claude Code can renew it. Declining
 from the menu keeps the status line; declining at launch turns the Claude icon off until the next launch.
 
-The status line points to the app, so it offers to move itself to `/Applications` when launched from anywhere
-else. To remove the integration, delete `statusLine` from Claude's settings.
+The status line points to the app, so install it by dragging it out of `UsageDisplay.dmg` in Finder, to
+Applications or any other folder. If you open it straight from the disk image, or macOS runs it from a temporary
+copy because it was never moved in Finder, it offers to copy itself to `/Applications`. To remove the
+integration, delete `statusLine` from Claude's settings.
 
 ## Build
 
 Needs only the Xcode Command Line Tools:
 
 ```sh
-./scripts/build-app.sh   # from macos/ → build/UsageDisplay.app and build/UsageDisplay.zip (universal)
+./scripts/build-app.sh   # from macos/ → build/UsageDisplay.app and build/UsageDisplay.dmg (universal)
 ```

@@ -1,25 +1,21 @@
 import AppKit
 
-/// Claude's status line and Launch at Login run the app by its path, so it should live in Applications.
+/// Claude's status line and Launch at Login run the app by its path, so that path must outlive this launch.
 enum AppLocation {
-    /// The running app when it isn't in an Applications folder; nil under `swift run`.
+    /// The running app when macOS runs it from a temporary copy or it runs from the disk image,
+    /// both of which disappear; nil under `swift run`. Any other folder is fine.
     static var misplacedBundle: URL? {
         guard Bundle.main.bundleIdentifier != nil else { return nil }
         let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath()
-        let folders = [URL(fileURLWithPath: "/Applications"),
-                       FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications")]
-        let inApplications = folders.contains { bundle.path.hasPrefix($0.resolvingSymlinksInPath().path + "/") }
-        return inApplications ? nil : bundle
+        return isTranslocated(bundle) || isReadOnly(bundle) ? bundle : nil
     }
 
-    /// Moves the app into /Applications, replacing an older copy, and returns where it now is.
+    /// Moves (or, off a read-only volume, copies) the app into /Applications, replacing an older copy; returns its new location.
     static func moveToApplications(_ bundle: URL) throws -> URL {
         let fileManager = FileManager.default
         let destination = URL(fileURLWithPath: "/Applications").appendingPathComponent(bundle.lastPathComponent)
-        // Opened from Downloads without moving it, macOS runs a read-only copy (App Translocation),
-        // so move the original instead; copy only if it can't be found.
-        let translocated = bundle.path.contains("/AppTranslocation/")
-        let source = translocated ? originalLocation(of: bundle) : bundle
+        // Under App Translocation the bundle is a read-only copy, so act on the original; copy the bundle only if it can't be found.
+        let source = isTranslocated(bundle) ? originalLocation(of: bundle) : bundle
         // Already in /Applications but translocated because it's still quarantined: only unquarantine.
         if source?.resolvingSymlinksInPath().path != destination.resolvingSymlinksInPath().path {
             var trashed: NSURL?
@@ -27,13 +23,19 @@ enum AppLocation {
                 try fileManager.trashItem(at: destination, resultingItemURL: &trashed)
             }
             do {
-                if let source {
+                // A read-only volume (the disk image) can't be moved from.
+                if let source, !isReadOnly(source) {
                     try fileManager.moveItem(at: source, to: destination)
+                } else if let source {
+                    try fileManager.copyItem(at: source, to: destination)
                 } else {
                     try fileManager.copyItem(at: bundle, to: destination)
                 }
             } catch {
-                if let trashed { try? fileManager.moveItem(at: trashed as URL, to: destination) }
+                if let trashed {
+                    try? fileManager.removeItem(at: destination)
+                    try? fileManager.moveItem(at: trashed as URL, to: destination)
+                }
                 throw error
             }
         }
@@ -61,6 +63,14 @@ enum AppLocation {
                 NSApp.terminate(nil)
             }
         }
+    }
+
+    private static func isTranslocated(_ bundle: URL) -> Bool {
+        bundle.path.contains("/AppTranslocation/")
+    }
+
+    private static func isReadOnly(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) ?? false
     }
 
     private static func originalLocation(of bundle: URL) -> URL? {
