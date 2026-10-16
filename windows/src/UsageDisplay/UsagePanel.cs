@@ -12,7 +12,8 @@ sealed record PanelNote(string Text) : PanelItem;
 
 sealed record PanelGap : PanelItem;
 
-sealed record PanelAction(string Text, Action Run, bool? Checked = null, bool IsLink = false) : PanelItem;
+/// A null Run shows the action greyed out.
+sealed record PanelAction(string Text, Action? Run, bool? Checked = null, bool IsLink = false) : PanelItem;
 
 static class AppTheme
 {
@@ -131,7 +132,8 @@ sealed class UsagePanel : Popup
 
     Control Wire(Control control, PanelAction action)
     {
-        control.Click += (_, _) => BeginInvoke(action.Run);
+        if (action.Run is { } run) control.Click += (_, _) => BeginInvoke(run);
+        else control.Enabled = false;
         return control;
     }
 

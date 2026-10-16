@@ -88,9 +88,10 @@ sealed class TrayMenu : Popup
 {
     protected override int ContentPadding => 4;
 
-    public void Fill(IReadOnlyList<(string Text, Action Run)?> entries)
+    /// A null Run shows the entry greyed out.
+    public void Fill(IReadOnlyList<(string Text, Action? Run)?> entries)
     {
-        var width = Math.Max(Px(180), entries.OfType<(string Text, Action Run)>()
+        var width = Math.Max(Px(180), entries.OfType<(string Text, Action? Run)>()
             .Max(e => TextRenderer.MeasureText(e.Text, Font).Width) + Px(32));
         var list = new FlowLayoutPanel
         {
@@ -108,11 +109,11 @@ sealed class TrayMenu : Popup
                 });
                 continue;
             }
-            var row = new MenuRow { Text = text, Size = new Size(width, Px(30)), Margin = Padding.Empty };
+            var row = new MenuRow { Text = text, Size = new Size(width, Px(30)), Margin = Padding.Empty, Enabled = run is not null };
             row.Click += (_, _) =>
             {
                 Hide();
-                BeginInvoke(run);
+                if (run is not null) BeginInvoke(run);
             };
             list.Controls.Add(row);
         }
@@ -156,7 +157,7 @@ sealed class MenuRow : Control
             graphics.FillPath(brush, path);
         }
         TextRenderer.DrawText(graphics, Text, Font, new Rectangle(LogicalToDeviceUnits(12), 0, Width, Height),
-            AppTheme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            Enabled ? AppTheme.Text : AppTheme.Dim, TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }
 
     static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)

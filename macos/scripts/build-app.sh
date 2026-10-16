@@ -15,9 +15,11 @@ lipo -create -output "$BIN" "${SLICES[@]}"
 APP=build/UsageDisplay.app
 DMG=build/UsageDisplay.dmg
 rm -rf "$APP" "$DMG" build/UsageDisplay.zip
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/UsageDisplay"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# Already universal and signed by Sparkle; ditto keeps the framework's symlinks.
+ditto "$(dirname "${SLICES[0]}")/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 
 # Ad-hoc (no Apple Developer account), so downloaders need
 # System Settings → Privacy & Security → "Open Anyway" on first launch.

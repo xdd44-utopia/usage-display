@@ -200,21 +200,32 @@ sealed class TrayApp : ApplicationContext
 
     async void StartUpdate()
     {
-        if (availableUpdate is not { } update || updateDownloading) return;
+        if (availableUpdate is null || updateDownloading) return;
         updateDownloading = true;
         Refresh();
         string? path = null;
-        try { path = await UpdateCheck.DownloadAsync(update, stopping.Token); }
-        catch (OperationCanceledException) { return; }
-        catch (Exception e) { Log.Write($"Update download failed: {e.Message}"); }
+        var problem = "Couldn’t reach GitHub. Try again later.";
+        try
+        {
+            // Checks again so a release published since the last check is the one installed.
+            availableUpdate = await UpdateCheck.CheckAsync();
+            if (availableUpdate is null) problem = "You’re already on the latest version.";
+            else
+            {
+                problem = "The download failed. Try again later.";
+                path = await UpdateCheck.DownloadAsync(availableUpdate, stopping.Token);
+            }
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested) { return; }
+        catch (Exception e) { Log.Write($"Update failed: {e.Message}"); }
         updateDownloading = false;
-        if (path is null)
+        if (path is null || availableUpdate is null)
         {
             Refresh();
-            Dialogs.Error("Couldn’t download the update", "Try again later.");
+            Dialogs.Error("Couldn’t update Usage Display", problem);
             return;
         }
-        Log.Write($"Update v{update.Version} downloaded; quitting to install");
+        Log.Write($"Update v{availableUpdate.Version} downloaded; quitting to install");
         PendingInstaller = path;
         Quit();
     }
@@ -302,7 +313,7 @@ sealed class TrayApp : ApplicationContext
         }
         if (menu.JustHidden) return;
         panel.Hide();
-        var entries = new List<(string, Action)?>();
+        var entries = new List<(string, Action?)?>();
         if (floating.Visible)
         {
             entries.Add(("Hide Floating Window", () => SetFloatingVisible(false)));
@@ -312,7 +323,8 @@ sealed class TrayApp : ApplicationContext
             entries.Add(("Show Usage", () => TogglePanel(anchor)));
             entries.Add(("Show Floating Window", () => SetFloatingVisible(true)));
         }
-        if (updateDownloading) entries.Add(("Downloading update…", () => { }));
+        if (updateDownloading || availableUpdate is not null) entries.Add(null);
+        if (updateDownloading) entries.Add(("Downloading update…", null));
         else if (availableUpdate is { } update) entries.Add(($"Update to v{update.Version}", StartUpdate));
         entries.Add(null);
         entries.Add(("Quit", Quit));
@@ -368,7 +380,7 @@ sealed class TrayApp : ApplicationContext
         footer.Add(floating.Visible
             ? new PanelAction("Hide Floating Window", () => SetFloatingVisible(false))
             : new PanelAction("Show Floating Window", () => SetFloatingVisible(true)));
-        if (updateDownloading) footer.Add(new PanelAction("Downloading update…", () => { }));
+        if (updateDownloading) footer.Add(new PanelAction("Downloading update…", null));
         else if (availableUpdate is { } update) footer.Add(new PanelAction($"Update to v{update.Version}", StartUpdate));
         footer.Add(new PanelAction("Quit", Quit));
         panel.Fill(sections, footer);

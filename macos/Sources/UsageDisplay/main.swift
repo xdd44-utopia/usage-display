@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Our status line is in Claude's settings, so declining credential access can fall back to it.
     private var claudeStatusLineInstalled = false
     private var claudeLiveProblem: String?
+    private var updater: Updater?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let bundle = AppLocation.misplacedBundle,
@@ -86,11 +87,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         refresh()
         fetchClaudeIfDue(after: 0)
+        updater = Updater.start()
+        updater?.checkIfDue(after: 0)
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
             MainActor.assumeIsolated {
                 self.refresh()
                 self.fetchClaudeIfDue(after: 5 * 60) // the usage endpoint rate-limits
                 self.fetchCodexIfDue(after: 5 * 60)
+                self.updater?.checkIfDue(after: 24 * 60 * 60)
             }
         }
         timer?.tolerance = 10
@@ -306,6 +310,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             login.state = SMAppService.mainApp.status == .enabled ? .on : .off
             menu.addItem(login)
         }
+        if let updater, let version = updater.availableVersion {
+            menu.addItem(.separator())
+            let update = NSMenuItem(title: updater.isInstalling ? "Downloading update…" : "Update to v\(version)",
+                                    action: updater.isInstalling ? nil : #selector(installUpdate), keyEquivalent: "")
+            update.target = self
+            menu.addItem(update)
+            menu.addItem(.separator())
+        }
         // A custom selector: macOS 26 auto-adds an icon to items using terminate(_:), misaligning the text.
         let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -328,6 +340,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(disabledItem("Updated \(Self.relative(min(fetchedAt, Date())))")) // clock skew
         }
         if let hint { menu.addItem(disabledItem(hint)) }
+    }
+
+    @objc private func installUpdate() {
+        updater?.install()
     }
 
     @objc private func quit() {

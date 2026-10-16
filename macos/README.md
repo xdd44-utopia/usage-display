@@ -35,6 +35,14 @@ copy because it was never moved in Finder, it offers to move itself to `/Applica
 runs from the disk image). To remove the
 integration, delete `statusLine` from Claude's settings.
 
+## Updates
+
+An installed app (not one running from the disk image) checks GitHub for a newer release when it starts and once a
+day, retrying after 15 minutes if the check fails. When one is available, both menus show **Update to v…** just above
+Quit; choosing it downloads the new disk image, replaces the app where it is, and reopens it, using
+[Sparkle](https://sparkle-project.org). Updates skip the first-launch “Open Anyway” step: Sparkle downloads them
+itself, so macOS doesn't flag them, and checks each one against the key in `Info.plist` instead.
+
 ## Build
 
 Needs only the Xcode Command Line Tools:
@@ -42,3 +50,7 @@ Needs only the Xcode Command Line Tools:
 ```sh
 ./scripts/build-app.sh   # from macos/ → build/UsageDisplay.app and build/UsageDisplay.dmg (universal)
 ```
+
+Releases are built by GitHub Actions; see [Releasing](../README.md#releasing). The update signing key lives in the
+login Keychain of whoever ran Sparkle's `generate_keys` and in the `SPARKLE_PRIVATE_KEY` repository secret. Without
+it, installed copies can't be updated again, so keep a backup.

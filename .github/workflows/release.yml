@@ -1,0 +1,90 @@
+# Pushing a tag like v0.2.0 builds both apps at that version and publishes one GitHub release with all of them.
+# Installed copies on both platforms check the latest release, so a release must carry every platform's files.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - id: tag
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Tag must look like v1.2.3"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        working-directory: macos
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" Resources/Info.plist
+          swift test
+          ./scripts/build-app.sh
+      - name: Sign update feed
+        working-directory: macos
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "::error::Add the SPARKLE_PRIVATE_KEY repository secret"; exit 1; }
+          ./scripts/appcast.sh "$VERSION" build/UsageDisplay.dmg \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/UsageDisplay.dmg" > build/appcast.xml
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: |
+            macos/build/UsageDisplay.dmg
+            macos/build/appcast.xml
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        working-directory: windows
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $project = 'src\UsageDisplay\UsageDisplay.csproj'
+          (Get-Content $project -Raw) -replace '<Version>[^<]*</Version>', "<Version>$env:VERSION</Version>" | Set-Content $project -NoNewline
+          if (-not (Get-Command ISCC -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+          .\scripts\build.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: windows/build/UsageDisplay-Setup-*.exe
+
+  release:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes \
+            UsageDisplay.dmg appcast.xml UsageDisplay-Setup-x64.exe UsageDisplay-Setup-arm64.exe
