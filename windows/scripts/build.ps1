@@ -8,16 +8,16 @@ $iscc = @((Get-Command ISCC -ErrorAction SilentlyContinue).Source,
     Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $iscc) { throw 'Inno Setup 6 not found. Install it with: winget install JRSoftware.InnoSetup' }
 
-& $dotnet test (Join-Path $root 'UsageDisplay.slnx')
+& $dotnet test (Join-Path $root 'UsageMonitor.slnx')
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
 foreach ($arch in 'x64', 'arm64') {
     $out = Join-Path $root "build\$arch"
     if (Test-Path $out) { Remove-Item -Recurse -Force $out }
-    & $dotnet publish (Join-Path $root 'src\UsageDisplay\UsageDisplay.csproj') -c Release -r "win-$arch" `
+    & $dotnet publish (Join-Path $root 'src\UsageMonitor\UsageMonitor.csproj') -c Release -r "win-$arch" `
         --self-contained false -p:PublishSingleFile=true -p:DebugType=none -o $out
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
-    & $iscc /Q "/DArch=$arch" (Join-Path $root 'installer\UsageDisplay.iss')
+    & $iscc /Q "/DArch=$arch" (Join-Path $root 'installer\UsageMonitor.iss')
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
-    Write-Host "Built $root\build\UsageDisplay-Setup-$arch.exe"
+    Write-Host "Built $root\build\UsageMonitor-Setup-$arch.exe"
 }

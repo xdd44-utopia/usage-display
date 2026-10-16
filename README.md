@@ -1,4 +1,4 @@
-# Usage Display
+# Usage Monitor
 
 Shows how much of your **Codex** and **Claude Code** usage limits is left, at a glance:
 
@@ -10,7 +10,7 @@ saved login. Click a macOS menu bar item or the Windows floating window to see e
 
 ```
 macos/     Swift package, tests, and scripts/build-app.sh
-windows/   .NET solution: src/UsageDisplay, tests/UsageDisplay.Tests, installer/, and scripts/build.ps1
+windows/   .NET solution: src/UsageMonitor, tests/UsageMonitor.Tests, installer/, and scripts/build.ps1
 ```
 
 ## Releasing

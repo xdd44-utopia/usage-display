@@ -1,4 +1,4 @@
-# Usage Display for Windows
+# Usage Monitor for Windows
 
 A small floating window that stays on top and shows how much of your **Codex** and **Claude Code** usage limits
 is left as rings, like Apple Watch activity rings, filling clockwise from the top:
@@ -43,15 +43,15 @@ refreshes your credentials; if the login has expired, it runs `claude auth statu
 
 ## Install
 
-Run `UsageDisplay-Setup-x64.exe`, or `UsageDisplay-Setup-arm64.exe` on an ARM PC. It installs for your account
-only, into `%LOCALAPPDATA%\Programs\UsageDisplay\`, without asking for administrator approval, and adds a
-Start menu entry. Quit Usage Display before installing an update. Uninstall it from Settings › Apps; that also
+Run `UsageMonitor-Setup-x64.exe`, or `UsageMonitor-Setup-arm64.exe` on an ARM PC. It installs for your account
+only, into `%LOCALAPPDATA%\Programs\UsageMonitor\`, without asking for administrator approval, and adds a
+Start menu entry. Quit Usage Monitor before installing an update. Uninstall it from Settings › Apps; that also
 removes its settings, Launch at Login and its Claude status line (if that still points to the installed copy). A
 status line it replaced isn't restored.
 
 An installed copy checks GitHub for a newer release when it starts and once a day. When one is available,
 **Update to v…** appears in the panel and the tray menu; it downloads the installer, quits, installs and reopens
-Usage Display.
+Usage Monitor.
 
 ## Build
 
@@ -59,7 +59,7 @@ Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) and, 
 [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`). Run these commands from `windows/`:
 
 ```powershell
-.\scripts\build.ps1   # tests, then build\UsageDisplay-Setup-x64.exe and build\UsageDisplay-Setup-arm64.exe
+.\scripts\build.ps1   # tests, then build\UsageMonitor-Setup-x64.exe and build\UsageMonitor-Setup-arm64.exe
 ```
 
 For a quick look during development, like `swift run`:

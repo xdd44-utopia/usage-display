@@ -1,4 +1,4 @@
-# Usage Display for macOS
+# Usage Monitor for macOS
 
 A macOS menu bar app that shows how much of your **Codex** and **Claude Code** usage limits is left.
 Each icon is a short stacked label, **COD** or **CLA**, followed by the percentage left, or `--%` until
@@ -29,7 +29,7 @@ It checks at launch, about every five minutes, and when you open the menu. It ne
 credentials; if the login has expired, it runs `claude auth status` so Claude Code can renew it. Declining
 from the menu keeps the status line; declining at launch turns the Claude icon off until the next launch.
 
-The status line points to the app, so install it by dragging it out of `UsageDisplay.dmg` in Finder, to
+The status line points to the app, so install it by dragging it out of `UsageMonitor.dmg` in Finder, to
 Applications or any other folder. If you open it straight from the disk image, or macOS runs it from a temporary
 copy because it was never moved in Finder, it offers to move itself to `/Applications` (copying it when it
 runs from the disk image). To remove the
@@ -48,7 +48,7 @@ itself, so macOS doesn't flag them, and checks each one against the key in `Info
 Needs only the Xcode Command Line Tools:
 
 ```sh
-./scripts/build-app.sh   # from macos/ → build/UsageDisplay.app and build/UsageDisplay.dmg (universal)
+./scripts/build-app.sh   # from macos/ → build/UsageMonitor.app and build/UsageMonitor.dmg (universal)
 ```
 
 Releases are built by GitHub Actions; see [Releasing](../README.md#releasing). The update signing key lives in the

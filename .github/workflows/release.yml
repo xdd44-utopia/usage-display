@@ -40,13 +40,13 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "::error::Add the SPARKLE_PRIVATE_KEY repository secret"; exit 1; }
-          ./scripts/appcast.sh "$VERSION" build/UsageDisplay.dmg \
-            "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/UsageDisplay.dmg" > build/appcast.xml
+          ./scripts/appcast.sh "$VERSION" build/UsageMonitor.dmg \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/UsageMonitor.dmg" > build/appcast.xml
       - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: |
-            macos/build/UsageDisplay.dmg
+            macos/build/UsageMonitor.dmg
             macos/build/appcast.xml
 
   windows:
@@ -62,7 +62,7 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          $project = 'src\UsageDisplay\UsageDisplay.csproj'
+          $project = 'src\UsageMonitor\UsageMonitor.csproj'
           (Get-Content $project -Raw) -replace '<Version>[^<]*</Version>', "<Version>$env:VERSION</Version>" | Set-Content $project -NoNewline
           if (-not (Get-Command ISCC -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
             choco install innosetup -y --no-progress
@@ -71,7 +71,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: windows
-          path: windows/build/UsageDisplay-Setup-*.exe
+          path: windows/build/UsageMonitor-Setup-*.exe
 
   release:
     needs: [macos, windows]
@@ -87,4 +87,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes \
-            UsageDisplay.dmg appcast.xml UsageDisplay-Setup-x64.exe UsageDisplay-Setup-arm64.exe
+            UsageMonitor.dmg appcast.xml UsageMonitor-Setup-x64.exe UsageMonitor-Setup-arm64.exe
