@@ -49,6 +49,10 @@ Start menu entry. Quit Usage Display before installing an update. Uninstall it f
 removes its settings, Launch at Login and its Claude status line (if that still points to the installed copy). A
 status line it replaced isn't restored.
 
+An installed copy checks GitHub for a newer release when it starts and once a day. When one is available, an
+**Update** button appears in the panel and the tray menu; it downloads the installer, quits, installs and reopens
+Usage Display.
+
 ## Build
 
 Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) and, for the installers,
@@ -67,3 +71,12 @@ For a quick look during development, like `swift run`:
 Quit an installed copy first, since only one can run. The debug app has no Launch at Login. While it runs,
 Claude's status line points at it; the installed copy points it back when it next starts. The scripts find the SDK even when the `dotnet` on PATH is a runtime-only install, which a bare
 `dotnet run` or `dotnet test` can't.
+
+### Releasing an update
+
+Bump `<Version>` in `src\UsageDisplay\UsageDisplay.csproj`, run `.\scripts\build.ps1`, then create a GitHub release
+tagged `v<version>` with both installers attached. Installed copies offer it as an update:
+
+```powershell
+gh release create v0.1.1 build\UsageDisplay-Setup-x64.exe build\UsageDisplay-Setup-arm64.exe
+```

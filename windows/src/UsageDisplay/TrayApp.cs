@@ -31,6 +31,13 @@ sealed class TrayApp : ApplicationContext
     bool claudeStatusLineInstalled;
     string? claudeLiveProblem;
     string? loggedUsage;
+    AvailableUpdate? availableUpdate;
+    DateTimeOffset lastUpdateCheck = DateTimeOffset.MinValue;
+    bool updateChecking;
+    bool updateDownloading;
+
+    /// Set when the user chose to update; Program starts it once the app has fully exited.
+    public string? PendingInstaller { get; private set; }
 
     bool ClaudeShown => claudeMode != ClaudeUsageMode.Disabled;
 
@@ -73,11 +80,13 @@ sealed class TrayApp : ApplicationContext
         Refresh();
         if (Settings.Get("FloatingHidden") != 1) floating.Show();
         FetchClaudeIfDue(TimeSpan.Zero);
+        CheckForUpdateIfDue(TimeSpan.Zero);
         timer.Tick += (_, _) =>
         {
             Refresh();
             FetchClaudeIfDue(TimeSpan.FromMinutes(5)); // the usage endpoint rate-limits
             FetchCodexIfDue(TimeSpan.FromMinutes(5));
+            CheckForUpdateIfDue(TimeSpan.FromHours(24));
         };
         timer.Start();
         SystemEvents.UserPreferenceChanged += Redraw;
@@ -163,6 +172,51 @@ sealed class TrayApp : ApplicationContext
         if (result.Status != ClaudeFetch.Expired || claudeCli is null) return result;
         await CommandLineTool.RunAsync(claudeCli, "auth status");
         return await ClaudeUsageApi.FetchAsync();
+    }
+
+    async void CheckForUpdateIfDue(TimeSpan interval)
+    {
+        if (!AppLocation.IsPublished || updateChecking || updateDownloading
+            || DateTimeOffset.Now - lastUpdateCheck < interval) return;
+        lastUpdateCheck = DateTimeOffset.Now;
+        updateChecking = true;
+        try
+        {
+            var update = await UpdateCheck.CheckAsync();
+            Log.Write(update is null ? "No update available" : $"Update available: v{update.Version}");
+            if (update is not null) availableUpdate = update;
+        }
+        catch (Exception e)
+        {
+            Log.Write($"Update check failed: {e.Message}");
+            lastUpdateCheck = DateTimeOffset.Now - TimeSpan.FromHours(24) + TimeSpan.FromMinutes(15);
+        }
+        finally
+        {
+            updateChecking = false;
+        }
+        Refresh();
+    }
+
+    async void StartUpdate()
+    {
+        if (availableUpdate is not { } update || updateDownloading) return;
+        updateDownloading = true;
+        Refresh();
+        string? path = null;
+        try { path = await UpdateCheck.DownloadAsync(update, stopping.Token); }
+        catch (OperationCanceledException) { return; }
+        catch (Exception e) { Log.Write($"Update download failed: {e.Message}"); }
+        updateDownloading = false;
+        if (path is null)
+        {
+            Refresh();
+            Dialogs.Error("Couldn’t download the update", "Try again later.");
+            return;
+        }
+        Log.Write($"Update v{update.Version} downloaded; quitting to install");
+        PendingInstaller = path;
+        Quit();
     }
 
     async void FetchCodexIfDue(TimeSpan interval, bool onlyIfStale = true)
@@ -258,6 +312,8 @@ sealed class TrayApp : ApplicationContext
             entries.Add(("Show Usage", () => TogglePanel(anchor)));
             entries.Add(("Show Floating Window", () => SetFloatingVisible(true)));
         }
+        if (updateDownloading) entries.Add(("Downloading update…", () => { }));
+        else if (availableUpdate is { } update) entries.Add(($"Update to v{update.Version}", StartUpdate));
         entries.Add(null);
         entries.Add(("Quit", Quit));
         menu.Fill(entries);
@@ -312,6 +368,8 @@ sealed class TrayApp : ApplicationContext
         footer.Add(floating.Visible
             ? new PanelAction("Hide Floating Window", () => SetFloatingVisible(false))
             : new PanelAction("Show Floating Window", () => SetFloatingVisible(true)));
+        if (updateDownloading) footer.Add(new PanelAction("Downloading update…", () => { }));
+        else if (availableUpdate is { } update) footer.Add(new PanelAction($"Update to v{update.Version}", StartUpdate));
         footer.Add(new PanelAction("Quit", Quit));
         panel.Fill(sections, footer);
     }

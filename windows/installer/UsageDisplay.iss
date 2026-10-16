@@ -46,6 +46,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\UsageDisplay.exe"; Description: "Open Usage Display"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\UsageDisplay.exe"; Flags: nowait skipifnotsilent
 
 [UninstallRun]
 Filename: "{app}\UsageDisplay.exe"; Parameters: "--remove-claude-status-line"; RunOnceId: "RemoveClaudeStatusLine"; Flags: runhidden waituntilterminated
