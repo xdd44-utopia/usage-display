@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Security.Principal;
 using System.Text.Json.Nodes;
 
 namespace UsageMonitor.Tests;
@@ -168,9 +167,6 @@ public sealed class ClaudeStatusLineTests : IDisposable
             ? new ProcessStartInfo(GitBash() ?? "bash.exe", ["-c", app.Command!])
             : new ProcessStartInfo("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", app.Command!]);
         if (shell == "bash" && GitBash() is null) return; // Git Bash isn't installed
-        // Elevated, the pipe is owned by Administrators but Git Bash children claim the user as owner,
-        // so the app's same-owner check refuses to send. CI runners are elevated.
-        if (shell == "bash" && new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)) return;
         info.RedirectStandardInput = info.RedirectStandardOutput = true;
         info.UseShellExecute = false;
         info.CreateNoWindow = true;

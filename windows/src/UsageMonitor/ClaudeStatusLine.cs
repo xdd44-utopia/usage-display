@@ -1,5 +1,7 @@
 using System.IO.Pipes;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -163,8 +165,11 @@ static class UsagePipe
     {
         try
         {
-            using var pipe = new NamedPipeClientStream(".", Name(configDirectory), PipeDirection.Out, PipeOptions.CurrentUserOnly);
+            using var pipe = new NamedPipeClientStream(".", Name(configDirectory),
+                PipeAccessRights.WriteData | PipeAccessRights.ReadPermissions, PipeOptions.None,
+                TokenImpersonationLevel.None, HandleInheritability.None);
             pipe.Connect(250); // Short: the status line waits on us, and the app may not be running.
+            if (!pipe.GetAccessControl().GetOwner(typeof(SecurityIdentifier))!.Equals(CurrentUser())) return;
             pipe.Write(Encoding.UTF8.GetBytes(message));
             pipe.Flush();
         }
@@ -175,15 +180,18 @@ static class UsagePipe
     {
         var context = SynchronizationContext.Current;
         var name = Name(configDirectory);
+        var security = new PipeSecurity();
+        security.AddAccessRule(new PipeAccessRule(CurrentUser(), PipeAccessRights.ReadWrite, AccessControlType.Allow));
+        security.SetOwner(CurrentUser());
         _ = Task.Run(async () =>
         {
             while (!cancel.IsCancellationRequested)
             {
                 try
                 {
-                    await using var server = new NamedPipeServerStream(name, PipeDirection.In,
+                    await using var server = NamedPipeServerStreamAcl.Create(name, PipeDirection.In,
                         NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte,
-                        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                        PipeOptions.Asynchronous, 0, 0, security);
                     await server.WaitForConnectionAsync(cancel);
                     var message = await new StreamReader(server, Encoding.UTF8).ReadToEndAsync(cancel);
                     if (context is null) received(message);
@@ -199,5 +207,13 @@ static class UsagePipe
                 }
             }
         }, CancellationToken.None);
+    }
+
+    // Not PipeOptions.CurrentUserOnly: that compares the token's default owner, which is Administrators when
+    // elevated but the user under Git Bash, so an elevated app never heard from Claude Code in Git Bash.
+    static SecurityIdentifier CurrentUser()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        return identity.User!;
     }
 }
