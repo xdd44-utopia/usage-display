@@ -29,10 +29,8 @@ public sealed class ClaudeStatusLineTests : IDisposable
         File.WriteAllText(Settings, """{"permissions":{"allow":["Read"]},"model":"sonnet"}""");
         for (var i = 0; i < 2; i++)
         {
-            var mode = integration.Configure(
-                () => throw new Exception("No replacement prompt for an empty slot or our own command"),
-                _ => throw new Exception("No credential access for a working status line"));
-            Assert.Equal(ClaudeUsageMode.StatusLine, mode);
+            Assert.True(integration.Configure(
+                () => throw new Exception("No replacement prompt for an empty slot or our own command")));
         }
         var saved = Saved();
         Assert.Equal("sonnet", (string?)saved["model"]);
@@ -49,9 +47,8 @@ public sealed class ClaudeStatusLineTests : IDisposable
         {
             ["statusLine"] = new JsonObject { ["type"] = "command", ["command"] = moved.Command },
         }.ToJsonString());
-        var mode = integration.Configure(
-            () => throw new Exception("A moved copy of our own command is not a custom status line"), _ => false);
-        Assert.Equal(ClaudeUsageMode.StatusLine, mode);
+        Assert.True(integration.Configure(
+            () => throw new Exception("A moved copy of our own command is not a custom status line")));
         Assert.Equal(integration.Command, (string?)Saved()["statusLine"]!["command"]);
     }
 
@@ -59,7 +56,7 @@ public sealed class ClaudeStatusLineTests : IDisposable
     public void UninstallRemovesOnlyThisCopysStatusLine()
     {
         File.WriteAllText(Settings, """{"model":"sonnet"}""");
-        integration.Configure(() => true, _ => false);
+        integration.Configure(() => true);
         integration.Remove();
         Assert.Null(Saved()["statusLine"]);
         Assert.Equal("sonnet", (string?)Saved()["model"]);
@@ -80,25 +77,15 @@ public sealed class ClaudeStatusLineTests : IDisposable
         const string original = """{"statusLine":{"type":"command","command":"existing-script","padding":2}}""";
         foreach (var replace in new[] { false, true })
         {
-            foreach (var credentials in new[] { false, true })
+            File.WriteAllText(Settings, original);
+            var prompts = 0;
+            Assert.Equal(replace, integration.Configure(() =>
             {
-                File.WriteAllText(Settings, original);
-                var prompts = new List<string>();
-                var mode = integration.Configure(() =>
-                {
-                    prompts.Add("replace");
-                    return replace;
-                }, error =>
-                {
-                    Assert.Null(error);
-                    prompts.Add("credentials");
-                    return credentials;
-                });
-                Assert.Equal(replace ? ClaudeUsageMode.StatusLine
-                    : credentials ? ClaudeUsageMode.Credentials : ClaudeUsageMode.Disabled, mode);
-                Assert.Equal(replace ? ["replace"] : new[] { "replace", "credentials" }, prompts);
-                if (!replace) Assert.Equal(original, File.ReadAllText(Settings));
-            }
+                prompts++;
+                return replace;
+            }));
+            Assert.Equal(1, prompts);
+            if (!replace) Assert.Equal(original, File.ReadAllText(Settings));
         }
     }
 
@@ -108,39 +95,24 @@ public sealed class ClaudeStatusLineTests : IDisposable
         foreach (var original in new[] { "{broken", "[]", """{"disableAllHooks":true}""" })
         {
             File.WriteAllText(Settings, original);
-            var offeredFallback = false;
-            var mode = integration.Configure(
-                () => throw new Exception("Must not offer replacement when settings cannot be safely used"),
-                error =>
-                {
-                    Assert.NotNull(error);
-                    offeredFallback = true;
-                    return false;
-                });
-            Assert.Equal(ClaudeUsageMode.Disabled, mode);
-            Assert.True(offeredFallback);
+            Assert.ThrowsAny<Exception>(() => integration.Configure(() => true));
             Assert.Equal(original, File.ReadAllText(Settings));
         }
 
         File.WriteAllText(Settings, """{"statusLine":{"command":"existing"}}""");
         const string changed = """{"statusLine":{"command":"new-user-choice"}}""";
-        var result = integration.Configure(() =>
+        Assert.ThrowsAny<Exception>(() => integration.Configure(() =>
         {
             File.WriteAllText(Settings, changed);
             return true;
-        }, error =>
-        {
-            Assert.NotNull(error);
-            return true;
-        });
-        Assert.Equal(ClaudeUsageMode.Credentials, result);
+        }));
         Assert.Equal(changed, File.ReadAllText(Settings));
     }
 
     [Fact]
     public void MissingSettingsAreCreated()
     {
-        Assert.Equal(ClaudeUsageMode.StatusLine, integration.Configure(() => false, _ => false));
+        Assert.True(integration.Configure(() => false));
         Assert.Equal(integration.Command, (string?)Saved()["statusLine"]!["command"]);
     }
 
@@ -151,8 +123,7 @@ public sealed class ClaudeStatusLineTests : IDisposable
             new ClaudeStatusLine(directory, @"C:\Users\me\AppData\Local\Programs\UsageMonitor\UsageMonitor.exe").Command);
         // Doesn't exist, so has no short name to fall back to.
         Assert.Null(new ClaudeStatusLine(directory, @"C:\No Such\User's App $(echo surprise)\UsageMonitor.exe").Command);
-        Assert.Equal(ClaudeUsageMode.Credentials, new ClaudeStatusLine(directory, @"C:\No Such\App.exe")
-            .Configure(() => false, error => error is not null));
+        Assert.ThrowsAny<Exception>(() => new ClaudeStatusLine(directory, @"C:\No Such\App.exe").Configure(() => false));
         Assert.False(File.Exists(Settings));
     }
 

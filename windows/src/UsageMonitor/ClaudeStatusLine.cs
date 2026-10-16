@@ -9,8 +9,6 @@ using System.Text.Json.Nodes;
 
 namespace UsageMonitor;
 
-enum ClaudeUsageMode { StatusLine, Credentials, Disabled }
-
 sealed class ClaudeStatusLine(string directory, string executable)
 {
     public const string Argument = "--claude-status-line";
@@ -37,39 +35,32 @@ sealed class ClaudeStatusLine(string directory, string executable)
         && command[..^(Argument.Length + 1)] is var path && !path.Contains(' ')
         && path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
 
-    public ClaudeUsageMode Configure(Func<bool> askToReplace, Func<Exception?, bool> askForCredentials)
+    /// True once the status line runs this app; false when the user keeps their own. Throws when it can't be set up.
+    public bool Configure(Func<bool> askToReplace)
     {
-        try
+        var command = Command ?? throw new SetupException(
+            "Usage Monitor is in a folder whose path Claude’s status line can’t run. Move it to a path without spaces or symbols.");
+        var file = SettingsFile;
+        var original = SettingsData(file);
+        var settings = new JsonObject();
+        if (original is not null)
         {
-            var command = Command ?? throw new SetupException(
-                "Usage Monitor is in a folder whose path Claude’s status line can’t run. Move it to a path without spaces or symbols.");
-            var file = SettingsFile;
-            var original = SettingsData(file);
-            var settings = new JsonObject();
-            if (original is not null)
-            {
-                settings = (original.Length == 0 ? null : Json.Parse(Encoding.UTF8.GetString(original))) as JsonObject
-                    ?? throw new SetupException("Claude’s settings could not be read safely.");
-            }
-            if (Json.Bool(settings.Get("disableAllHooks")) == true)
-                throw new SetupException("Claude’s settings disable status-line commands.");
-            var existing = settings["statusLine"];
-            var ownStatusLine = existing is JsonObject
-                && Json.String(existing.Get("type")) == "command" && IsGenerated(Json.String(existing.Get("command")));
-            if (ownStatusLine && Json.String(existing.Get("command")) == command) return ClaudeUsageMode.StatusLine;
-            if (!ownStatusLine && existing is not null && !askToReplace())
-                return askForCredentials(null) ? ClaudeUsageMode.Credentials : ClaudeUsageMode.Disabled;
-            if (!SameData(SettingsData(file), original))
-                throw new SetupException("Claude’s settings changed while setup was open.");
+            settings = (original.Length == 0 ? null : Json.Parse(Encoding.UTF8.GetString(original))) as JsonObject
+                ?? throw new SetupException("Claude’s settings could not be read safely.");
+        }
+        if (Json.Bool(settings.Get("disableAllHooks")) == true)
+            throw new SetupException("Claude’s settings disable status-line commands.");
+        var existing = settings["statusLine"];
+        var ownStatusLine = existing is JsonObject
+            && Json.String(existing.Get("type")) == "command" && IsGenerated(Json.String(existing.Get("command")));
+        if (ownStatusLine && Json.String(existing.Get("command")) == command) return true;
+        if (!ownStatusLine && existing is not null && !askToReplace()) return false;
+        if (!SameData(SettingsData(file), original))
+            throw new SetupException("Claude’s settings changed while setup was open.");
 
-            settings["statusLine"] = new JsonObject { ["type"] = "command", ["command"] = command };
-            Save(file, settings);
-            return ClaudeUsageMode.StatusLine;
-        }
-        catch (Exception e)
-        {
-            return askForCredentials(e) ? ClaudeUsageMode.Credentials : ClaudeUsageMode.Disabled;
-        }
+        settings["statusLine"] = new JsonObject { ["type"] = "command", ["command"] = command };
+        Save(file, settings);
+        return true;
     }
 
     /// Run by the uninstaller: removes the status line only while it still runs this copy of the app.

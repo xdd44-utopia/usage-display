@@ -23,14 +23,11 @@ final class ClaudeStatusLineTests {
     @Test func testInstallationPreservesOtherSettingsAndRecognizesItselfOnRelaunch() throws {
         try Data(#"{"permissions":{"allow":["Read"]},"model":"sonnet"}"#.utf8).write(to: settings)
         for _ in 0..<2 {
-            let mode = integration.configure(askToReplace: {
+            let installed = try integration.configure(askToReplace: {
                 Issue.record("No replacement prompt for an empty slot or our own command")
                 return false
-            }, askForCredentials: { _ in
-                Issue.record("No credential access for a working status line")
-                return false
             })
-            #expect((mode) == (.statusLine))
+            #expect(installed)
         }
         let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as? [String: Any])
         #expect((saved["model"] as? String) == ("sonnet"))
@@ -41,11 +38,11 @@ final class ClaudeStatusLineTests {
     @Test func testMovedAppRewritesItsOwnStatusLineWithoutAsking() throws {
         let moved = ClaudeStatusLine(directory: directory, executable: URL(fileURLWithPath: "/Applications/Other's.app/Contents/MacOS/UsageMonitor"))
         try JSONSerialization.data(withJSONObject: ["statusLine": ["type": "command", "command": moved.command]]).write(to: settings)
-        let mode = integration.configure(askToReplace: {
+        let installed = try integration.configure(askToReplace: {
             Issue.record("A moved copy of our own command is not a custom status line")
             return false
-        }, askForCredentials: { _ in false })
-        #expect((mode) == (.statusLine))
+        })
+        #expect(installed)
         let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as? [String: Any])
         #expect(((saved["statusLine"] as? [String: String])?["command"]) == (integration.command))
     }
@@ -53,21 +50,15 @@ final class ClaudeStatusLineTests {
     @Test func testExistingStatusLineFollowsConsentAndIsUntouchedWhenKept() throws {
         let original = Data(#"{"statusLine":{"type":"command","command":"existing-script","padding":2}}"#.utf8)
         for replace in [false, true] {
-            for credentials in [false, true] {
-                try original.write(to: settings)
-                var prompts: [String] = []
-                let mode = integration.configure(askToReplace: {
-                    prompts.append("replace")
-                    return replace
-                }, askForCredentials: { error in
-                    #expect((error) == nil)
-                    prompts.append("credentials")
-                    return credentials
-                })
-                #expect((mode) == (replace ? .statusLine : credentials ? .credentials : .disabled))
-                #expect((prompts) == (replace ? ["replace"] : ["replace", "credentials"]))
-                if !replace { #expect((try Data(contentsOf: settings)) == (original)) }
-            }
+            try original.write(to: settings)
+            var prompts = 0
+            let installed = try integration.configure(askToReplace: {
+                prompts += 1
+                return replace
+            })
+            #expect(installed == replace)
+            #expect(prompts == 1)
+            if !replace { #expect((try Data(contentsOf: settings)) == (original)) }
         }
     }
 
@@ -75,34 +66,27 @@ final class ClaudeStatusLineTests {
         for original in ["{broken", "[]", #"{"disableAllHooks":true}"#] {
             let data = Data(original.utf8)
             try data.write(to: settings)
-            var offeredFallback = false
-            let mode = integration.configure(askToReplace: {
-                Issue.record("Must not offer replacement when settings cannot be safely used")
-                return true
-            }, askForCredentials: { error in
-                #expect((error) != nil)
-                offeredFallback = true
-                return false
-            })
-            #expect(mode == .disabled)
-            #expect(offeredFallback)
+            #expect(throws: (any Error).self) {
+                try self.integration.configure(askToReplace: {
+                    Issue.record("Must not offer replacement when settings cannot be safely used")
+                    return true
+                })
+            }
             #expect((try Data(contentsOf: settings)) == (data))
         }
         try Data(#"{"statusLine":{"command":"existing"}}"#.utf8).write(to: settings)
         let changed = Data(#"{"statusLine":{"command":"new-user-choice"}}"#.utf8)
-        let mode = integration.configure(askToReplace: {
-            try! changed.write(to: self.settings)
-            return true
-        }, askForCredentials: { error in
-            #expect((error) != nil)
-            return true
-        })
-        #expect(mode == .credentials)
+        #expect(throws: (any Error).self) {
+            try self.integration.configure(askToReplace: {
+                try! changed.write(to: self.settings)
+                return true
+            })
+        }
         #expect((try Data(contentsOf: settings)) == (changed))
     }
 
     @Test func testMissingSettingsAndShellSpecialCharactersInExecutablePath() throws {
-        #expect((integration.configure(askToReplace: { false }, askForCredentials: { _ in false })) == (.statusLine))
+        #expect(try integration.configure(askToReplace: { false }))
         try Data("#!/bin/sh\nprintf '%s' \"$1\"\n".utf8).write(to: integration.executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: integration.executable.path)
         let process = Process()

@@ -1,9 +1,5 @@
 import Foundation
 
-enum ClaudeUsageMode {
-    case statusLine, credentials, disabled
-}
-
 struct ClaudeStatusLine {
     static let argument = "--claude-status-line"
     static let notification = Notification.Name("com.xdd44.usage-monitor.claude-usage")
@@ -27,38 +23,35 @@ struct ClaudeStatusLine {
         return command.hasPrefix("if [ -x '") && command.hasSuffix(" \(argument); fi")
     }
 
-    func configure(askToReplace: () -> Bool, askForCredentials: (Error?) -> Bool) -> ClaudeUsageMode {
-        do {
-            // Go through a symlinked settings.json so the write doesn't replace the link with a file.
-            let file = directory.appendingPathComponent("settings.json").resolvingSymlinksInPath()
-            let original = try settingsData(at: file)
-            var settings: [String: Any] = [:]
-            if let original {
-                guard let object = try JSONSerialization.jsonObject(with: original) as? [String: Any] else {
-                    throw SetupError.invalidSettings
-                }
-                settings = object
+    /// True once the status line runs this app; false when the user keeps their own. Throws when it can't be set up.
+    func configure(askToReplace: () -> Bool) throws -> Bool {
+        // Go through a symlinked settings.json so the write doesn't replace the link with a file.
+        let file = directory.appendingPathComponent("settings.json").resolvingSymlinksInPath()
+        let original = try settingsData(at: file)
+        var settings: [String: Any] = [:]
+        if let original {
+            guard let object = try JSONSerialization.jsonObject(with: original) as? [String: Any] else {
+                throw SetupError.invalidSettings
             }
-            if settings["disableAllHooks"] as? Bool == true { throw SetupError.hooksDisabled }
-            let existing = settings["statusLine"]
-            let ownStatusLine = (existing as? [String: Any]).map {
-                $0["type"] as? String == "command" && Self.isGenerated($0["command"] as? String)
-            } ?? false
-            if ownStatusLine, (existing as? [String: Any])?["command"] as? String == command {
-                return .statusLine
-            }
-            if !ownStatusLine && existing != nil && !(existing is NSNull) && !askToReplace() {
-                return askForCredentials(nil) ? .credentials : .disabled
-            }
-            guard try settingsData(at: file) == original else { throw SetupError.settingsChanged }
-            settings["statusLine"] = ["type": "command", "command": command]
-            let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try data.write(to: file, options: .atomic)
-            return .statusLine
-        } catch {
-            return askForCredentials(error) ? .credentials : .disabled
+            settings = object
         }
+        if settings["disableAllHooks"] as? Bool == true { throw SetupError.hooksDisabled }
+        let existing = settings["statusLine"]
+        let ownStatusLine = (existing as? [String: Any]).map {
+            $0["type"] as? String == "command" && Self.isGenerated($0["command"] as? String)
+        } ?? false
+        if ownStatusLine, (existing as? [String: Any])?["command"] as? String == command {
+            return true
+        }
+        if !ownStatusLine && existing != nil && !(existing is NSNull) && !askToReplace() {
+            return false
+        }
+        guard try settingsData(at: file) == original else { throw SetupError.settingsChanged }
+        settings["statusLine"] = ["type": "command", "command": command]
+        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: file, options: .atomic)
+        return true
     }
 
     private func settingsData(at file: URL) throws -> Data? {

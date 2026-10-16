@@ -18,16 +18,17 @@ sealed class TrayApp : ApplicationContext
     CodexUsage? codexLive;
     DateTimeOffset lastCodexFetch = DateTimeOffset.MinValue;
     string? codexCli;
-    /// Deliberately not persisted: the user opts in each launch, like Claude's credential access.
     bool codexLiveEnabled;
     bool codexLiveFailed;
     bool codexFetching;
     bool claudeFetching;
+    bool claudeInstalled;
     string? claudeCli;
     ClaudeUsage? claudeUsage;
     ClaudeUsage? claudeLive;
+    ClaudeUsage? claudeStatusLineUsage;
     DateTimeOffset lastClaudeFetch = DateTimeOffset.MinValue;
-    ClaudeUsageMode claudeMode = ClaudeUsageMode.Disabled;
+    bool claudeCredentials;
     bool claudeStatusLineInstalled;
     string? claudeLiveProblem;
     string? loggedUsage;
@@ -39,7 +40,7 @@ sealed class TrayApp : ApplicationContext
     /// Set when the user chose to update; Program starts it once the app has fully exited.
     public string? PendingInstaller { get; private set; }
 
-    bool ClaudeShown => claudeMode != ClaudeUsageMode.Disabled;
+    bool ClaudeShown => claudeCredentials || claudeStatusLineInstalled;
 
     public bool Start()
     {
@@ -51,7 +52,7 @@ sealed class TrayApp : ApplicationContext
             codexCli = CommandLineTool.Find("codex");
             Log.Write($"Codex found; CLI {codexCli ?? "not found"}");
         }
-        var claudeInstalled = File.Exists(claudeConfig) || Directory.Exists(ClaudeStatusLine.ConfigDirectory);
+        claudeInstalled = File.Exists(claudeConfig) || Directory.Exists(ClaudeStatusLine.ConfigDirectory);
         if (!codexShown && !claudeInstalled)
         {
             Dialogs.Error("Neither Codex nor Claude Code was found",
@@ -60,18 +61,31 @@ sealed class TrayApp : ApplicationContext
             return false;
         }
 
+        Exception? claudeSetupError = null;
         if (claudeInstalled)
         {
             claudeCli = CommandLineTool.Find("claude");
             UsagePipe.Listen(ClaudeStatusLine.ConfigDirectory, ReceiveClaudeUsage, stopping.Token);
             var integration = new ClaudeStatusLine(ClaudeStatusLine.ConfigDirectory, Environment.ProcessPath!);
-            claudeMode = integration.Configure(
-                () => Dialogs.Ask("Replace your Claude status line?",
-                    "You already have a custom Claude status line. Replace it with Usage Monitor’s usage indicators?",
-                    "Replace Status Line", "Keep Existing"),
-                AskForClaudeCredentials);
-            claudeStatusLineInstalled = claudeMode == ClaudeUsageMode.StatusLine;
-            Log.Write($"Claude Code found; usage via {claudeMode}, status line runs {integration.Command ?? "nothing"}");
+            try
+            {
+                claudeStatusLineInstalled = integration.Configure(
+                    () => Dialogs.Ask("Replace your Claude status line?",
+                        "You already have a custom Claude status line. Replace it with Usage Monitor’s usage indicators?",
+                        "Replace Status Line", "Keep Existing"));
+            }
+            catch (Exception e)
+            {
+                claudeSetupError = e;
+            }
+        }
+        var live = AllowLiveUsage(claudeSetupError, retrying: !codexShown && !claudeStatusLineInstalled);
+        codexLiveEnabled = live;
+        claudeCredentials = live && claudeInstalled;
+        if (claudeInstalled)
+        {
+            Log.Write($"Claude Code found; status line {(claudeStatusLineInstalled ? "installed" : claudeSetupError?.Message ?? "kept")}, "
+                + $"credentials {(claudeCredentials ? "allowed" : "declined")}");
         }
         if (!codexShown && !ClaudeShown) return false;
 
@@ -80,6 +94,7 @@ sealed class TrayApp : ApplicationContext
         Refresh();
         if (Settings.Get("FloatingHidden") != 1) floating.Show();
         FetchClaudeIfDue(TimeSpan.Zero);
+        FetchCodexIfDue(TimeSpan.Zero);
         CheckForUpdateIfDue(TimeSpan.Zero);
         timer.Tick += (_, _) =>
         {
@@ -102,9 +117,11 @@ sealed class TrayApp : ApplicationContext
         var tips = new List<string>();
         if (ClaudeShown)
         {
-            claudeUsage = claudeMode == ClaudeUsageMode.StatusLine
-                ? claudeLive
-                : Newest(claudeLive, claudeReader.Read(), u => u.FetchedAt);
+            claudeUsage = claudeCredentials
+                ? Newest(Newest(claudeLive, claudeStatusLineUsage, u => u.FetchedAt), claudeReader.Read(), u => u.FetchedAt)
+                : claudeStatusLineUsage;
+            // The status line doesn't report the plan.
+            if (claudeUsage is { PlanType: null } && claudeLive?.PlanType is string plan) claudeUsage = claudeUsage with { PlanType = plan };
             gauges.Add(RingGauge.Claude(claudeUsage?.FiveHour?.RemainingPercent(), claudeUsage?.Weekly?.RemainingPercent()));
             var parts = claudeUsage?.Windows.Select(w => $"{w.Label} {Format.Percent(w.RemainingPercent())}% left");
             tips.Add(parts is null ? "Claude Code usage unavailable" : "Claude Code: " + string.Join(" · ", parts));
@@ -131,7 +148,7 @@ sealed class TrayApp : ApplicationContext
 
     async void FetchClaudeIfDue(TimeSpan interval)
     {
-        if (claudeMode != ClaudeUsageMode.Credentials || claudeFetching
+        if (!claudeCredentials || claudeFetching
             || DateTimeOffset.Now - lastClaudeFetch < interval) return;
         lastClaudeFetch = DateTimeOffset.Now;
         claudeFetching = true;
@@ -241,11 +258,8 @@ sealed class TrayApp : ApplicationContext
         {
             var usage = await CodexUsageApi.FetchAsync(codexCli);
             Log.Write(usage is null ? "Codex live usage failed" : "Codex live usage received");
-            if (codexLiveEnabled)
-            {
-                if (usage is not null) codexLive = usage;
-                codexLiveFailed = usage is null;
-            }
+            if (usage is not null) codexLive = usage;
+            codexLiveFailed = usage is null;
         }
         finally
         {
@@ -254,47 +268,43 @@ sealed class TrayApp : ApplicationContext
         Refresh();
     }
 
-    void ToggleCodexLive()
+    /// Asked once for both tools and remembered, or again when a declined user retries; the local sources stay on
+    /// either way as the backup.
+    bool AllowLiveUsage(Exception? claudeSetupError, bool retrying = false)
     {
-        codexLiveEnabled = !codexLiveEnabled;
-        if (codexLiveEnabled)
-        {
-            FetchCodexIfDue(TimeSpan.Zero, onlyIfStale: false);
-            if (panel.Visible) FillPanel();
-        }
-        else
-        {
-            codexLive = null;
-            codexLiveFailed = false;
-            Refresh();
-        }
+        if (Settings.Get("LiveUsage") is int saved && (saved != 0 || !retrying)) return saved != 0;
+        var claude = claudeInstalled;
+        var uses = new List<string>();
+        if (codexCli is not null) uses.Add("run Codex in the background to get current limits and banked resets from OpenAI");
+        if (claude) uses.Add($"read your Claude login from {Tilde(ClaudeUsageApi.CredentialsFile)} to request usage from Anthropic");
+        if (uses.Count == 0) return false;
+        var reason = claudeSetupError is null ? "" : claudeSetupError.Message + " ";
+        var declining = claude && !claudeStatusLineInstalled
+            ? "Without it, Claude Code usage is hidden" + (codexShown ? " and Codex usage updates only while you chat." : ".")
+            : "Without it, usage updates only while you chat.";
+        var allowed = Dialogs.Ask("Allow live usage?",
+            reason + $"Usage Monitor can {string.Join(", and ", uses)}, about every five minutes. {declining}",
+            "Allow Live Usage", "Use Local Only");
+        Settings.Set("LiveUsage", allowed ? 1 : 0);
+        return allowed;
     }
 
-    bool AskForClaudeCredentials(Exception? error)
+    void UseLiveUsage()
     {
-        var reason = error is null ? "" : error.Message + " ";
-        var declining = claudeStatusLineInstalled
-            ? "Declining keeps using the status line."
-            : "Declining disables Claude usage for this launch.";
-        return Dialogs.Ask("Allow access to your Claude login?",
-            reason + $"Usage Monitor can read your Claude login from {Tilde(ClaudeUsageApi.CredentialsFile)} "
-            + "and request usage from Anthropic every five minutes. " + declining,
-            "Allow Credential Access", claudeStatusLineInstalled ? "Keep Status Line" : "Disable Claude");
+        if (!AllowLiveUsage(null, retrying: true)) return;
+        codexLiveEnabled = true;
+        claudeCredentials = claudeInstalled;
+        FetchCodexIfDue(TimeSpan.Zero, onlyIfStale: false);
+        FetchClaudeIfDue(TimeSpan.Zero);
+        Refresh();
     }
 
     void ReceiveClaudeUsage(string json)
     {
-        if (claudeMode != ClaudeUsageMode.StatusLine || ClaudeStatusLine.UsageFromStatusLine(json) is not { } usage) return;
+        if (!claudeStatusLineInstalled || ClaudeStatusLine.UsageFromStatusLine(json) is not { } usage) return;
         Log.Write("Claude usage arrived from the status line");
-        claudeLive = usage;
+        claudeStatusLineUsage = usage;
         Refresh();
-    }
-
-    void UseClaudeCredentials()
-    {
-        if (!AskForClaudeCredentials(null)) return;
-        claudeMode = ClaudeUsageMode.Credentials;
-        FetchClaudeIfDue(TimeSpan.Zero);
     }
 
     void ClickTray(MouseButtons button)
@@ -403,15 +413,17 @@ sealed class TrayApp : ApplicationContext
             items.Add(new PanelNote("No Codex usage found"));
             items.Add(new PanelNote("Run Codex once to record your limits"));
         }
-        if (codexCli is not null)
+        if (codexCli is not null && !codexLiveEnabled)
         {
             items.Add(new PanelGap());
-            if (codexLiveEnabled && codexLiveFailed)
-            {
-                items.Add(new PanelNote("Couldn’t get live usage"));
-                items.Add(new PanelNote("Run “codex login status” in a terminal to check your login"));
-            }
-            items.Add(new PanelAction("Use Background Codex for Live Usage", ToggleCodexLive, codexLiveEnabled));
+            items.Add(new PanelAction("Use Live Usage…", UseLiveUsage));
+        }
+        else if (codexLiveEnabled && codexLiveFailed)
+        {
+            items.Add(new PanelGap());
+            items.Add(new PanelNote("Couldn’t get live usage"));
+            items.Add(new PanelNote("Run “codex login status” in a terminal to check your login, then check again"));
+            items.Add(new PanelAction("Check Again", () => FetchCodexIfDue(TimeSpan.Zero, onlyIfStale: false)));
         }
         items.Add(new PanelGap());
         items.Add(new PanelAction("Did Tibo reset today?", () => Open("https://x.com/thsottiaux"), IsLink: true));
@@ -424,23 +436,23 @@ sealed class TrayApp : ApplicationContext
         if (claudeUsage is { } usage)
         {
             items.Add(new PanelHeader(usage.PlanType is string plan ? $"Claude Code ({plan})" : "Claude Code"));
-            var showingLive = claudeMode == ClaudeUsageMode.Credentials && claudeLiveProblem is null
-                && claudeLive is not null && usage.FetchedAt == claudeLive.FetchedAt;
+            var liveWorking = claudeCredentials && claudeLiveProblem is null;
+            var showingLive = liveWorking && claudeLive is not null && usage.FetchedAt == claudeLive.FetchedAt;
             AddUsage(items, usage.Windows, showingLive ? null : usage.FetchedAt,
-                claudeMode == ClaudeUsageMode.StatusLine ? "Updates only while you chat in the CLI" : null, []);
+                claudeStatusLineInstalled && !liveWorking ? "Updates only while you chat in the CLI" : null, []);
         }
         else
         {
             items.Add(new PanelHeader("Claude Code"));
             items.Add(new PanelNote("No Claude Code usage found"));
-            items.Add(new PanelNote(claudeMode == ClaudeUsageMode.StatusLine
-                ? "Chat with Claude Code CLI to load usage"
-                : "Waiting for usage from Anthropic"));
+            items.Add(new PanelNote(claudeCredentials
+                ? "Waiting for usage from Anthropic"
+                : "Chat with Claude Code CLI to load usage"));
         }
-        if (claudeMode == ClaudeUsageMode.StatusLine)
+        if (!claudeCredentials)
         {
             items.Add(new PanelGap());
-            items.Add(new PanelAction("Use Credential Access for Live Usage…", UseClaudeCredentials));
+            items.Add(new PanelAction("Use Live Usage…", UseLiveUsage));
         }
         else if (claudeLiveProblem is not null)
         {

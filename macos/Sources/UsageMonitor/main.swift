@@ -12,17 +12,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var codexLive: CodexUsage?
     private var lastCodexFetch = Date.distantPast
     private var codexCLI: URL?
-    /// Deliberately not persisted: the user opts in each launch, like Claude's credential access.
     private var codexLiveEnabled = false
     private var codexLiveFailed = false
     private var codexFetching = false
     private var claudeFetching = false
+    private var claudeInstalled = false
     private var claudeCLI: URL?
     private var claudeUsage: ClaudeUsage?
     private var claudeLive: ClaudeUsage?
+    private var claudeStatusLineUsage: ClaudeUsage?
     private var lastClaudeFetch = Date.distantPast
-    private var claudeMode = ClaudeUsageMode.disabled
-    /// Our status line is in Claude's settings, so declining credential access can fall back to it.
+    private var claudeCredentials = false
     private var claudeStatusLineInstalled = false
     private var claudeLiveProblem: String?
     private var updater: Updater?
@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             codexItem = makeItem(length: NSStatusItem.variableLength)
             codexCLI = CommandLineTool.find("codex")
         }
-        let claudeInstalled = fileManager.fileExists(atPath: claudeConfig.path)
+        claudeInstalled = fileManager.fileExists(atPath: claudeConfig.path)
             || fileManager.fileExists(atPath: ClaudeStatusLine.configDirectory.path)
         guard codexItem != nil || claudeInstalled else {
             NSApp.activate(ignoringOtherApps: true)
@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
+        var claudeSetupError: Error?
         if claudeInstalled {
             claudeCLI = CommandLineTool.find("claude")
             DistributedNotificationCenter.default().addObserver(
@@ -69,17 +70,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 suspensionBehavior: .deliverImmediately)
             let integration = ClaudeStatusLine(directory: ClaudeStatusLine.configDirectory,
                                                 executable: Bundle.main.executableURL!)
-            claudeMode = integration.configure(askToReplace: {
-                self.ask("Replace your Claude status line?",
-                         detail: "You already have a custom Claude status line. Replace it with Usage Monitor’s usage indicators?",
-                         accept: "Replace Status Line", decline: "Keep Existing")
-            }, askForCredentials: { error in
-                self.askForClaudeCredentials(error: error)
-            })
-            claudeStatusLineInstalled = claudeMode == .statusLine
-            if claudeMode != .disabled {
-                claudeItem = makeItem(length: NSStatusItem.variableLength)
+            do {
+                claudeStatusLineInstalled = try integration.configure(askToReplace: {
+                    self.ask("Replace your Claude status line?",
+                             detail: "You already have a custom Claude status line. Replace it with Usage Monitor’s usage indicators?",
+                             accept: "Replace Status Line", decline: "Keep Existing")
+                })
+            } catch {
+                claudeSetupError = error
             }
+        }
+        let live = allowLiveUsage(setupError: claudeSetupError,
+                                  retrying: codexItem == nil && !claudeStatusLineInstalled)
+        codexLiveEnabled = live
+        claudeCredentials = live && claudeInstalled
+        if claudeCredentials || claudeStatusLineInstalled {
+            claudeItem = makeItem(length: NSStatusItem.variableLength)
         }
         guard codexItem != nil || claudeItem != nil else {
             NSApp.terminate(nil)
@@ -87,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         refresh()
         fetchClaudeIfDue(after: 0)
+        fetchCodexIfDue(after: 0)
         updater = Updater.start()
         updater?.checkIfDue(after: 0)
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
@@ -118,11 +125,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 ?? "Codex usage unavailable"
         }
         if let claudeItem {
-            if claudeMode == .statusLine {
-                claudeUsage = claudeLive
-            } else {
-                claudeUsage = [claudeLive, claudeReader.read()].compactMap { $0 }
-                    .max { ($0.fetchedAt ?? .distantPast) < ($1.fetchedAt ?? .distantPast) }
+            let sources = claudeCredentials ? [claudeLive, claudeStatusLineUsage, claudeReader.read()] : [claudeStatusLineUsage]
+            claudeUsage = sources.compactMap { $0 }
+                .max { ($0.fetchedAt ?? .distantPast) < ($1.fetchedAt ?? .distantPast) }
+            // The status line doesn't report the plan.
+            if let usage = claudeUsage, usage.planType == nil, let plan = claudeLive?.planType {
+                claudeUsage = ClaudeUsage(fiveHour: usage.fiveHour, weekly: usage.weekly, planType: plan, fetchedAt: usage.fetchedAt)
             }
             claudeItem.button?.image = TextGauge.claude(
                 fiveHourPercent: claudeUsage?.fiveHour?.remainingPercent(),
@@ -134,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func fetchClaudeIfDue(after interval: TimeInterval) {
-        guard claudeItem != nil, claudeMode == .credentials, !claudeFetching,
+        guard claudeItem != nil, claudeCredentials, !claudeFetching,
               Date().timeIntervalSince(lastClaudeFetch) >= interval else { return }
         lastClaudeFetch = Date()
         claudeFetching = true
@@ -147,12 +155,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .expired:
                 claudeLiveProblem = "Claude Code login expired"
             case .denied:
-                if claudeStatusLineInstalled {
-                    claudeMode = .statusLine
-                    claudeLiveProblem = nil
-                } else {
-                    disableClaude()
-                }
+                claudeCredentials = false
+                claudeLiveProblem = nil
+                if !claudeStatusLineInstalled { disableClaude() }
             case .unavailable:
                 claudeLiveProblem = "Couldn’t get live usage"
             }
@@ -177,21 +182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task {
             defer { codexFetching = false }
             let usage = await CodexUsageAPI.fetch(executable: codexCLI)
-            if codexLiveEnabled {
-                if let usage { codexLive = usage }
-                codexLiveFailed = usage == nil
-            }
-            refresh()
-        }
-    }
-
-    @objc private func toggleCodexLive() {
-        codexLiveEnabled.toggle()
-        if codexLiveEnabled {
-            fetchCodexIfDue(after: 0, onlyIfStale: false)
-        } else {
-            codexLive = nil
-            codexLiveFailed = false
+            if let usage { codexLive = usage }
+            codexLiveFailed = usage == nil
             refresh()
         }
     }
@@ -206,17 +198,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private func askForClaudeCredentials(error: Error?) -> Bool {
-        let reason = error.map { "\($0.localizedDescription) " } ?? ""
-        let declining = claudeStatusLineInstalled
-            ? "Declining keeps using the status line." : "Declining disables Claude usage for this launch."
-        return ask("Allow access to your Claude login?",
-                   detail: reason + "Usage Monitor can read your Claude login from the macOS Keychain and request usage from Anthropic every five minutes. " + declining,
-                   accept: "Allow Credential Access", decline: claudeStatusLineInstalled ? "Keep Status Line" : "Disable Claude")
+    /// Asked once for both tools and remembered, or again when a declined user retries; the local sources stay on
+    /// either way as the backup.
+    private func allowLiveUsage(setupError: Error?, retrying: Bool = false) -> Bool {
+        let key = "LiveUsage"
+        if let saved = UserDefaults.standard.object(forKey: key) as? Bool, saved || !retrying { return saved }
+        let claude = claudeInstalled
+        var uses: [String] = []
+        if codexCLI != nil { uses.append("run Codex in the background to get current limits and banked resets from OpenAI") }
+        if claude { uses.append("read your Claude login from the macOS Keychain to request usage from Anthropic") }
+        guard !uses.isEmpty else { return false }
+        let reason = setupError.map { "\($0.localizedDescription) " } ?? ""
+        let declining = claude && !claudeStatusLineInstalled
+            ? "Without it, Claude Code usage is hidden" + (codexItem != nil ? " and Codex usage updates only while you chat." : ".")
+            : "Without it, usage updates only while you chat."
+        let allowed = ask("Allow live usage?",
+                          detail: reason + "Usage Monitor can \(uses.joined(separator: ", and ")), about every five minutes. " + declining,
+                          accept: "Allow Live Usage", decline: "Use Local Only")
+        UserDefaults.standard.set(allowed, forKey: key)
+        return allowed
+    }
+
+    @objc private func useLiveUsage() {
+        guard allowLiveUsage(setupError: nil, retrying: true) else { return }
+        codexLiveEnabled = true
+        if claudeInstalled {
+            claudeCredentials = true
+            if claudeItem == nil { claudeItem = makeItem(length: NSStatusItem.variableLength) }
+        }
+        fetchCodexIfDue(after: 0, onlyIfStale: false)
+        fetchClaudeIfDue(after: 0)
+        refresh()
+    }
+
+    @objc private func checkCodexAgain() {
+        fetchCodexIfDue(after: 0, onlyIfStale: false)
     }
 
     private func disableClaude() {
-        claudeMode = .disabled
         claudeLive = nil
         claudeUsage = nil
         if let claudeItem { NSStatusBar.system.removeStatusItem(claudeItem) }
@@ -225,16 +244,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func receiveClaudeUsage(_ notification: Notification) {
-        guard claudeMode == .statusLine, let json = notification.userInfo?["usage"] as? String,
+        guard claudeStatusLineInstalled, let json = notification.userInfo?["usage"] as? String,
               let usage = ClaudeStatusLine.usage(from: Data(json.utf8)) else { return }
-        claudeLive = usage
+        claudeStatusLineUsage = usage
         refresh()
-    }
-
-    @objc private func useClaudeCredentials() {
-        guard askForClaudeCredentials(error: nil) else { return }
-        claudeMode = .credentials
-        fetchClaudeIfDue(after: 0)
     }
 
     @objc private func checkClaudeAgain() {
@@ -259,16 +272,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 menu.addItem(disabledItem("No Codex usage found"))
                 menu.addItem(disabledItem("Run Codex once to record your limits"))
             }
-            if codexCLI != nil {
+            if codexCLI != nil && !codexLiveEnabled {
                 menu.addItem(.separator())
-                if codexLiveEnabled && codexLiveFailed {
-                    menu.addItem(disabledItem("Couldn’t get live usage"))
-                    menu.addItem(disabledItem("Run “codex login status” in a terminal to check your login"))
-                }
-                let live = NSMenuItem(title: "Use Background Codex for Live Usage", action: #selector(toggleCodexLive), keyEquivalent: "")
-                live.target = self
-                live.state = codexLiveEnabled ? .on : .off
-                menu.addItem(live)
+                menu.addItem(useLiveUsageItem())
+            } else if codexLiveEnabled && codexLiveFailed {
+                menu.addItem(.separator())
+                menu.addItem(disabledItem("Couldn’t get live usage"))
+                menu.addItem(disabledItem("Run “codex login status” in a terminal to check your login, then check again"))
+                let retry = NSMenuItem(title: "Check Again", action: #selector(checkCodexAgain), keyEquivalent: "")
+                retry.target = self
+                menu.addItem(retry)
             }
             menu.addItem(.separator())
             let profile = NSMenuItem(title: "Did Tibo reset today?", action: #selector(openProfile), keyEquivalent: "")
@@ -278,21 +291,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             if let usage = claudeUsage {
                 menu.addItem(disabledItem(usage.planType.map { "Claude Code (\($0))" } ?? "Claude Code"))
-                let showingLive = claudeMode == .credentials && claudeLiveProblem == nil && claudeLive != nil
-                    && usage.fetchedAt == claudeLive?.fetchedAt
+                let liveWorking = claudeCredentials && claudeLiveProblem == nil
+                let showingLive = liveWorking && claudeLive != nil && usage.fetchedAt == claudeLive?.fetchedAt
                 addUsage(usage.windows, fetchedAt: showingLive ? nil : usage.fetchedAt,
-                         hint: claudeMode == .statusLine ? "Update only while you chat in CLI" : nil, to: menu)
+                         hint: claudeStatusLineInstalled && !liveWorking ? "Update only while you chat in CLI" : nil, to: menu)
             } else {
                 menu.addItem(disabledItem("No Claude Code usage found"))
-                menu.addItem(disabledItem(claudeMode == .statusLine
-                    ? "Chat with Claude Code CLI to load usage"
-                    : "Waiting for usage from Anthropic"))
+                menu.addItem(disabledItem(claudeCredentials
+                    ? "Waiting for usage from Anthropic"
+                    : "Chat with Claude Code CLI to load usage"))
             }
-            if claudeMode == .statusLine {
+            if !claudeCredentials {
                 menu.addItem(.separator())
-                let fallback = NSMenuItem(title: "Use Credential Access for Live Usage…", action: #selector(useClaudeCredentials), keyEquivalent: "")
-                fallback.target = self
-                menu.addItem(fallback)
+                menu.addItem(useLiveUsageItem())
             } else if let claudeLiveProblem {
                 menu.addItem(.separator())
                 menu.addItem(disabledItem(claudeLiveProblem))
@@ -378,6 +389,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let unlisted = count - min(count, expirations.count)
         if unlisted > 0 { items.append(disabledItem("\(unlisted) more, expiry unknown")) }
         return items
+    }
+
+    private func useLiveUsageItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Use Live Usage…", action: #selector(useLiveUsage), keyEquivalent: "")
+        item.target = self
+        return item
     }
 
     private func disabledItem(_ title: String) -> NSMenuItem {
