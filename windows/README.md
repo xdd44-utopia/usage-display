@@ -72,4 +72,4 @@ Quit an installed copy first, since only one can run. The debug app has no Launc
 Claude's status line points at it; the installed copy points it back when it next starts. The scripts find the SDK even when the `dotnet` on PATH is a runtime-only install, which a bare
 `dotnet run` or `dotnet test` can't.
 
-Releases are built by GitHub Actions; see [Releasing](../README.md#releasing).
+Pushing a tag like `v0.2.0` builds and publishes a release; see [the release workflow](../.github/workflows/release.yml).
