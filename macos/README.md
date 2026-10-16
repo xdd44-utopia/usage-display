@@ -51,6 +51,11 @@ Needs only the Xcode Command Line Tools:
 ./scripts/build-app.sh   # from macos/ → build/UsageMonitor.app and build/UsageMonitor.dmg (universal)
 ```
 
+The disk image window's background is `Resources/dmg-background.png` (and `@2x`). The window size, which must match
+the 1x PNG's pixel size, and the icon positions are set in `scripts/dmg-layout.sh`, which writes them to
+`Resources/dmg-layout`. Rerun it after resizing the background or moving icons; it needs internet access to install
+two Python packages.
+
 Releases are built by GitHub Actions; see [Releasing](../README.md#releasing). The update signing key lives in the
 login Keychain of whoever ran Sparkle's `generate_keys` and in the `SPARKLE_PRIVATE_KEY` repository secret. Without
 it, installed copies can't be updated again, so keep a backup.

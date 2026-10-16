@@ -29,5 +29,10 @@ STAGING=$(mktemp -d)
 trap 'rm -rf "$STAGING"' EXIT
 cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
+# Background and Finder layout; regenerate with dmg-layout.sh.
+mkdir "$STAGING/.background"
+tiffutil -cathidpicheck Resources/dmg-background.png Resources/dmg-background@2x.png \
+  -out "$STAGING/.background/background.tiff"
+cp Resources/dmg-layout "$STAGING/.DS_Store"
 hdiutil create -volname "Usage Monitor" -srcfolder "$STAGING" -format UDZO -ov "$DMG"
 echo "Built $APP and $DMG"
