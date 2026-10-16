@@ -6,6 +6,11 @@ static class Program
     static int Main(string[] args)
     {
         if (args.Contains(ClaudeStatusLine.Argument)) return ClaudeStatusLine.Publish();
+        if (args.Contains(ClaudeStatusLine.RemoveArgument))
+        {
+            new ClaudeStatusLine(ClaudeStatusLine.ConfigDirectory, Environment.ProcessPath!).Remove();
+            return 0;
+        }
         Log.AttachToTerminal();
 
         using var instance = new Mutex(true, @"Local\UsageDisplay", out var first);
@@ -21,18 +26,9 @@ static class Program
 #pragma warning restore WFO5001
         SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
 
-        string? relaunch;
-        using (var app = new TrayApp())
-        {
-            Log.QuitOnCtrlC(app.Quit);
-            if (app.Start()) Application.Run(app);
-            relaunch = app.RelaunchPath;
-        }
-        if (relaunch is not null)
-        {
-            instance.Dispose();
-            AppLocation.Relaunch(relaunch);
-        }
+        using var app = new TrayApp();
+        Log.QuitOnCtrlC(app.Quit);
+        if (app.Start()) Application.Run(app);
         return 0;
     }
 }

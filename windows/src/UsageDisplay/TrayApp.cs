@@ -34,26 +34,8 @@ sealed class TrayApp : ApplicationContext
 
     bool ClaudeShown => claudeMode != ClaudeUsageMode.Disabled;
 
-    public string? RelaunchPath { get; private set; }
-
     public bool Start()
     {
-        if (AppLocation.MisplacedExecutable is string exe
-            && Dialogs.Ask("Move Usage Display to your programs folder?",
-                $"Claude’s status line runs Usage Display from where it is now, so it needs a permanent place: {Tilde(AppLocation.InstallPath)}.",
-                "Move", "Not Now"))
-        {
-            try
-            {
-                RelaunchPath = AppLocation.Install(exe);
-                return false;
-            }
-            catch (Exception e)
-            {
-                Dialogs.Error("Usage Display couldn’t move itself", e.Message);
-            }
-        }
-
         var codexHome = CodexUsageReader.DefaultCodexHome;
         var claudeConfig = ClaudeUsageReader.DefaultConfigFile;
         if (Directory.Exists(codexHome))

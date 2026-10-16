@@ -12,6 +12,7 @@ enum ClaudeUsageMode { StatusLine, Credentials, Disabled }
 sealed class ClaudeStatusLine(string directory, string executable)
 {
     public const string Argument = "--claude-status-line";
+    public const string RemoveArgument = "--remove-claude-status-line";
     public string Executable => executable;
 
     public static string ConfigDirectory =>
@@ -40,8 +41,7 @@ sealed class ClaudeStatusLine(string directory, string executable)
         {
             var command = Command ?? throw new SetupException(
                 "Usage Display is in a folder whose path Claude’s status line can’t run. Move it to a path without spaces or symbols.");
-            var file = Path.Combine(directory, "settings.json");
-            if (File.Exists(file)) file = new FileInfo(file).ResolveLinkTarget(true)?.FullName ?? file;
+            var file = SettingsFile;
             var original = SettingsData(file);
             var settings = new JsonObject();
             if (original is not null)
@@ -61,21 +61,51 @@ sealed class ClaudeStatusLine(string directory, string executable)
                 throw new SetupException("Claude’s settings changed while setup was open.");
 
             settings["statusLine"] = new JsonObject { ["type"] = "command", ["command"] = command };
-            var json = settings.ToJsonString(new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            });
-            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            var temporary = file + ".usage-display.tmp";
-            File.WriteAllText(temporary, json + "\n", new UTF8Encoding(false));
-            File.Move(temporary, file, overwrite: true);
+            Save(file, settings);
             return ClaudeUsageMode.StatusLine;
         }
         catch (Exception e)
         {
             return askForCredentials(e) ? ClaudeUsageMode.Credentials : ClaudeUsageMode.Disabled;
         }
+    }
+
+    /// Run by the uninstaller: removes the status line only while it still runs this copy of the app.
+    public void Remove()
+    {
+        try
+        {
+            var file = SettingsFile;
+            if (SettingsData(file) is not { Length: > 0 } data
+                || Json.Parse(Encoding.UTF8.GetString(data)) is not JsonObject settings
+                || Command is not string command
+                || Json.String(settings.Get("statusLine").Get("command")) != command) return;
+            settings.Remove("statusLine");
+            Save(file, settings);
+        }
+        catch (Exception) { } // Never block uninstalling; a leftover status line just prints nothing.
+    }
+
+    string SettingsFile
+    {
+        get
+        {
+            var file = Path.Combine(directory, "settings.json");
+            return File.Exists(file) ? new FileInfo(file).ResolveLinkTarget(true)?.FullName ?? file : file;
+        }
+    }
+
+    static void Save(string file, JsonObject settings)
+    {
+        var json = settings.ToJsonString(new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        });
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        var temporary = file + ".usage-display.tmp";
+        File.WriteAllText(temporary, json + "\n", new UTF8Encoding(false));
+        File.Move(temporary, file, overwrite: true);
     }
 
     static byte[]? SettingsData(string file)

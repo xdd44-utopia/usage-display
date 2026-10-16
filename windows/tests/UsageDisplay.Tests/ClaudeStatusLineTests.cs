@@ -56,6 +56,25 @@ public sealed class ClaudeStatusLineTests : IDisposable
     }
 
     [Fact]
+    public void UninstallRemovesOnlyThisCopysStatusLine()
+    {
+        File.WriteAllText(Settings, """{"model":"sonnet"}""");
+        integration.Configure(() => true, _ => false);
+        integration.Remove();
+        Assert.Null(Saved()["statusLine"]);
+        Assert.Equal("sonnet", (string?)Saved()["model"]);
+
+        var other = new ClaudeStatusLine(directory, @"C:\Somewhere\Else\UsageDisplay.exe");
+        foreach (var command in new[] { "existing-script", other.Command! })
+        {
+            var original = new JsonObject { ["statusLine"] = new JsonObject { ["command"] = command } }.ToJsonString();
+            File.WriteAllText(Settings, original);
+            integration.Remove();
+            Assert.Equal(original, File.ReadAllText(Settings));
+        }
+    }
+
+    [Fact]
     public void ExistingStatusLineFollowsConsentAndIsUntouchedWhenKept()
     {
         const string original = """{"statusLine":{"type":"command","command":"existing-script","padding":2}}""";

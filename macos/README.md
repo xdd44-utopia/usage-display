@@ -31,7 +31,8 @@ from the menu keeps the status line; declining at launch turns the Claude icon o
 
 The status line points to the app, so install it by dragging it out of `UsageDisplay.dmg` in Finder, to
 Applications or any other folder. If you open it straight from the disk image, or macOS runs it from a temporary
-copy because it was never moved in Finder, it offers to copy itself to `/Applications`. To remove the
+copy because it was never moved in Finder, it offers to move itself to `/Applications` (copying it when it
+runs from the disk image). To remove the
 integration, delete `statusLine` from Claude's settings.
 
 ## Build

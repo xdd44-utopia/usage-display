@@ -2,6 +2,12 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'dotnet.ps1')
 
+$iscc = @((Get-Command ISCC -ErrorAction SilentlyContinue).Source,
+          (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
+          (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')) |
+    Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if (-not $iscc) { throw 'Inno Setup 6 not found. Install it with: winget install JRSoftware.InnoSetup' }
+
 & $dotnet test (Join-Path $root 'UsageDisplay.slnx')
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
@@ -11,7 +17,7 @@ foreach ($arch in 'x64', 'arm64') {
     & $dotnet publish (Join-Path $root 'src\UsageDisplay\UsageDisplay.csproj') -c Release -r "win-$arch" `
         --self-contained false -p:PublishSingleFile=true -p:DebugType=none -o $out
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
-    $zip = Join-Path $root "build\UsageDisplay-win-$arch.zip"
-    Compress-Archive -Path (Join-Path $out 'UsageDisplay.exe') -DestinationPath $zip -Force
-    Write-Host "Built $out\UsageDisplay.exe and $zip"
+    & $iscc /Q "/DArch=$arch" (Join-Path $root 'installer\UsageDisplay.iss')
+    if ($LASTEXITCODE) { exit $LASTEXITCODE }
+    Write-Host "Built $root\build\UsageDisplay-Setup-$arch.exe"
 }

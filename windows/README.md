@@ -41,16 +41,21 @@ Access for Live Usage…**), the app can instead read your Claude login from `%U
 and ask Anthropic. It checks at launch, about every five minutes, and when you open the panel. It never stores or
 refreshes your credentials; if the login has expired, it runs `claude auth status` so Claude Code can renew it.
 
-The status line points to the app, so it offers to move itself to
-`%LOCALAPPDATA%\Programs\UsageDisplay\` and adds a Start menu entry. To remove the integration, delete
-`statusLine` from Claude's settings.
+## Install
+
+Run `UsageDisplay-Setup-x64.exe`, or `UsageDisplay-Setup-arm64.exe` on an ARM PC. It installs for your account
+only, into `%LOCALAPPDATA%\Programs\UsageDisplay\`, without asking for administrator approval, and adds a
+Start menu entry. Quit Usage Display before installing an update. Uninstall it from Settings › Apps; that also
+removes its settings, Launch at Login and its Claude status line (if that still points to the installed copy). A
+status line it replaced isn't restored.
 
 ## Build
 
-Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). Run these commands from `windows/`:
+Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) and, for the installers,
+[Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`). Run these commands from `windows/`:
 
 ```powershell
-.\scripts\build.ps1   # tests, then build\x64\UsageDisplay.exe, build\arm64\UsageDisplay.exe and a zip for each
+.\scripts\build.ps1   # tests, then build\UsageDisplay-Setup-x64.exe and build\UsageDisplay-Setup-arm64.exe
 ```
 
 For a quick look during development, like `swift run`:
@@ -59,7 +64,6 @@ For a quick look during development, like `swift run`:
 .\scripts\run.ps1   # builds and starts the debug app; it logs to the terminal, and Ctrl+C quits it
 ```
 
-Quit an installed copy first, since only one can run. The debug app doesn't offer to move itself and has no
-Launch at Login. While it runs, Claude's status line points at it; the installed copy points it back when it
-next starts. The scripts find the SDK even when the `dotnet` on PATH is a runtime-only install, which a bare
+Quit an installed copy first, since only one can run. The debug app has no Launch at Login. While it runs,
+Claude's status line points at it; the installed copy points it back when it next starts. The scripts find the SDK even when the `dotnet` on PATH is a runtime-only install, which a bare
 `dotnet run` or `dotnet test` can't.
