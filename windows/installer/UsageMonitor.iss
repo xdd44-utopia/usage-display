@@ -14,6 +14,11 @@ VersionInfoVersion={#AppVersion}
 ; Per user, so installing and updating never ask for administrator approval. The folder matches where
 ; earlier versions moved themselves, so updating replaces those copies in place.
 PrivilegesRequired=lowest
+; The app started at the end of setup (and after each update) inherits RedirectionGuard, which hides
+; Codex's bin junction so the app can't find codex. A per-user install has nothing for it to protect.
+#if Ver >= EncodeVer(6, 7, 0)
+RedirectionGuard=no
+#endif
 DefaultDirName={localappdata}\Programs\UsageMonitor
 DisableDirPage=yes
 DisableProgramGroupPage=yes
