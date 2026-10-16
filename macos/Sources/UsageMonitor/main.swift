@@ -61,7 +61,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
-        var claudeSetupError: Error?
         if claudeInstalled {
             claudeCLI = CommandLineTool.find("claude")
             DistributedNotificationCenter.default().addObserver(
@@ -77,11 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                              accept: "Replace Status Line", decline: "Keep Existing")
                 })
             } catch {
-                claudeSetupError = error
+                NSApp.activate(ignoringOtherApps: true)
+                NSAlert(error: error).runModal()
             }
         }
-        let live = allowLiveUsage(setupError: claudeSetupError,
-                                  retrying: codexItem == nil && !claudeStatusLineInstalled)
+        let live = allowLiveUsage(retrying: codexItem == nil && !claudeStatusLineInstalled)
         codexLiveEnabled = live
         claudeCredentials = live && claudeInstalled
         if claudeCredentials || claudeStatusLineInstalled {
@@ -200,27 +199,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Asked once for both tools and remembered, or again when a declined user retries; the local sources stay on
     /// either way as the backup.
-    private func allowLiveUsage(setupError: Error?, retrying: Bool = false) -> Bool {
+    private func allowLiveUsage(retrying: Bool = false) -> Bool {
         let key = "LiveUsage"
         if let saved = UserDefaults.standard.object(forKey: key) as? Bool, saved || !retrying { return saved }
-        let claude = claudeInstalled
-        var uses: [String] = []
-        if codexCLI != nil { uses.append("run Codex in the background to get current limits and banked resets from OpenAI") }
-        if claude { uses.append("read your Claude login from the macOS Keychain to request usage from Anthropic") }
-        guard !uses.isEmpty else { return false }
-        let reason = setupError.map { "\($0.localizedDescription) " } ?? ""
-        let declining = claude && !claudeStatusLineInstalled
+        guard codexCLI != nil || claudeInstalled else { return false }
+        let declining = claudeInstalled && !claudeStatusLineInstalled
             ? "Without it, Claude Code usage is hidden" + (codexItem != nil ? " and Codex usage updates only while you chat." : ".")
             : "Without it, usage updates only while you chat."
         let allowed = ask("Allow live usage?",
-                          detail: reason + "Usage Monitor can \(uses.joined(separator: ", and ")), about every five minutes. " + declining,
+                          detail: "This allows live usage for both Codex and Claude Code, including either tool you install later. "
+                              + "Usage Monitor can run Codex in the background to get current limits and banked resets from OpenAI, "
+                              + "and read your Claude login from the macOS Keychain to request usage from Anthropic, "
+                              + "about every five minutes. " + declining,
                           accept: "Allow Live Usage", decline: "Use Local Only")
         UserDefaults.standard.set(allowed, forKey: key)
         return allowed
     }
 
     @objc private func useLiveUsage() {
-        guard allowLiveUsage(setupError: nil, retrying: true) else { return }
+        guard allowLiveUsage(retrying: true) else { return }
         codexLiveEnabled = true
         if claudeInstalled {
             claudeCredentials = true
@@ -272,7 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 menu.addItem(disabledItem("No Codex usage found"))
                 menu.addItem(disabledItem("Run Codex once to record your limits"))
             }
-            if codexCLI != nil && !codexLiveEnabled {
+            if !codexLiveEnabled && (codexCLI != nil || claudeInstalled) {
                 menu.addItem(.separator())
                 menu.addItem(useLiveUsageItem())
             } else if codexLiveEnabled && codexLiveFailed {

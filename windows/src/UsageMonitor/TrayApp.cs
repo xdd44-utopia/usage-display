@@ -77,9 +77,10 @@ sealed class TrayApp : ApplicationContext
             catch (Exception e)
             {
                 claudeSetupError = e;
+                Dialogs.Error("Couldn’t set up Claude’s status line", e.Message);
             }
         }
-        var live = AllowLiveUsage(claudeSetupError, retrying: !codexShown && !claudeStatusLineInstalled);
+        var live = AllowLiveUsage(retrying: !codexShown && !claudeStatusLineInstalled);
         codexLiveEnabled = live;
         claudeCredentials = live && claudeInstalled;
         if (claudeInstalled)
@@ -270,20 +271,18 @@ sealed class TrayApp : ApplicationContext
 
     /// Asked once for both tools and remembered, or again when a declined user retries; the local sources stay on
     /// either way as the backup.
-    bool AllowLiveUsage(Exception? claudeSetupError, bool retrying = false)
+    bool AllowLiveUsage(bool retrying = false)
     {
         if (Settings.Get("LiveUsage") is int saved && (saved != 0 || !retrying)) return saved != 0;
-        var claude = claudeInstalled;
-        var uses = new List<string>();
-        if (codexCli is not null) uses.Add("run Codex in the background to get current limits and banked resets from OpenAI");
-        if (claude) uses.Add($"read your Claude login from {Tilde(ClaudeUsageApi.CredentialsFile)} to request usage from Anthropic");
-        if (uses.Count == 0) return false;
-        var reason = claudeSetupError is null ? "" : claudeSetupError.Message + " ";
-        var declining = claude && !claudeStatusLineInstalled
+        if (codexCli is null && !claudeInstalled) return false;
+        var declining = claudeInstalled && !claudeStatusLineInstalled
             ? "Without it, Claude Code usage is hidden" + (codexShown ? " and Codex usage updates only while you chat." : ".")
             : "Without it, usage updates only while you chat.";
         var allowed = Dialogs.Ask("Allow live usage?",
-            reason + $"Usage Monitor can {string.Join(", and ", uses)}, about every five minutes. {declining}",
+            "This allows live usage for both Codex and Claude Code, including either tool you install later. "
+            + "Usage Monitor can run Codex in the background to get current limits and banked resets from OpenAI, "
+            + $"and read your Claude login from {Tilde(ClaudeUsageApi.CredentialsFile)} to request usage from Anthropic, "
+            + $"about every five minutes. {declining}",
             "Allow Live Usage", "Use Local Only");
         Settings.Set("LiveUsage", allowed ? 1 : 0);
         return allowed;
@@ -291,7 +290,7 @@ sealed class TrayApp : ApplicationContext
 
     void UseLiveUsage()
     {
-        if (!AllowLiveUsage(null, retrying: true)) return;
+        if (!AllowLiveUsage(retrying: true)) return;
         codexLiveEnabled = true;
         claudeCredentials = claudeInstalled;
         FetchCodexIfDue(TimeSpan.Zero, onlyIfStale: false);
@@ -413,7 +412,7 @@ sealed class TrayApp : ApplicationContext
             items.Add(new PanelNote("No Codex usage found"));
             items.Add(new PanelNote("Run Codex once to record your limits"));
         }
-        if (codexCli is not null && !codexLiveEnabled)
+        if (!codexLiveEnabled && (codexCli is not null || claudeInstalled))
         {
             items.Add(new PanelGap());
             items.Add(new PanelAction("Use Live Usage…", UseLiveUsage));
