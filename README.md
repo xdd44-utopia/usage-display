@@ -12,16 +12,3 @@ saved login. Click a macOS menu bar item or the Windows floating window to see e
 macos/     Swift package, tests, and scripts/build-app.sh
 windows/   .NET solution: src/UsageMonitor, tests/UsageMonitor.Tests, installer/, and scripts/build.ps1
 ```
-
-## Releasing
-
-Push a version tag; GitHub Actions builds both apps at that version and publishes one release with the macOS disk
-image, its Sparkle update feed (`appcast.xml`) and both Windows installers:
-
-```sh
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-Installed copies on both platforms look at the latest release, so publish every release through this workflow, and
-never mark one without all of these files as latest. The macOS disk image is signed for Sparkle with the
-`SPARKLE_PRIVATE_KEY` repository secret.
